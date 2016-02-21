@@ -32,7 +32,7 @@ struct QemuEvent {
 };
 
 struct QemuThread {
-//    pthread_t thread;
+    pthread_t thread;
     void *(*start_routine)(void*);
     void * arg;
     char name[32];

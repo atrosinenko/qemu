@@ -42,11 +42,13 @@ void qemu_thread_naming(bool enable)
 #endif
 }
 
+#if 0
 static void error_exit(int err, const char *msg)
 {
     fprintf(stderr, "qemu: %s: %s\n", msg, strerror(err));
     abort();
 }
+#endif
 
 void qemu_mutex_init(QemuMutex *mutex)
 {
@@ -247,6 +249,7 @@ void qemu_sem_post(QemuSemaphore *sem)
 #endif
 }
 
+#if 0
 static void compute_abs_deadline(struct timespec *ts, int ms)
 {
     struct timeval tv;
@@ -258,6 +261,7 @@ static void compute_abs_deadline(struct timespec *ts, int ms)
         ts->tv_nsec -= 1000000000;
     }
 }
+#endif
 
 int qemu_sem_timedwait(QemuSemaphore *sem, int ms)
 {
@@ -493,12 +497,15 @@ static void qemu_thread_atexit_run(void *arg)
     notifier_list_notify(&ntd.list, NULL);
 }
 
+#if 0
 static void __attribute__((constructor)) qemu_thread_atexit_init(void)
 {
     pthread_key_create(&exit_key, qemu_thread_atexit_run);
 }
+#endif
 
 
+#if 0
 /* Attempt to set the threads name; note that this is for debug, so
  * we're not going to fail if we can't set it.
  */
@@ -508,6 +515,7 @@ static void qemu_thread_set_name(QemuThread *thread, const char *name)
     pthread_setname_np(thread->thread, name);
 #endif
 }
+#endif
 
 void qemu_thread_create(QemuThread *thread, const char *name,
                        void *(*start_routine)(void*),
@@ -569,6 +577,7 @@ void qemu_thread_exit(void *retval)
 void *qemu_thread_join(QemuThread *thread)
 {
     fprintf(stderr, "qemu_thread_join called\n");
+    return 0;
 #if 0
     int err;
     void *ret;

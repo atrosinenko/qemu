@@ -35,7 +35,7 @@
 #include "config-host.h"
 #include "qemu-common.h"
 
-#if defined(__GLIBC__)
+#if 1 //defined(__GLIBC__)
 # include <pty.h>
 #elif defined CONFIG_BSD
 # include <termios.h>

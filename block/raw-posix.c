@@ -50,6 +50,9 @@
 #define _POSIX_PTHREAD_SEMANTICS 1
 #include <sys/dkio.h>
 #endif
+
+#include <sys/ioctl.h>
+
 #ifdef __linux__
 #include <sys/types.h>
 #include <sys/stat.h>
