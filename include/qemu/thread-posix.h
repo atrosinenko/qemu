@@ -4,7 +4,8 @@
 #include <semaphore.h>
 
 struct QemuMutex {
-    pthread_mutex_t lock;
+    //pthread_mutex_t lock;
+    int locked;
 };
 
 struct QemuCond {
@@ -17,7 +18,8 @@ struct QemuSemaphore {
     pthread_cond_t cond;
     unsigned int count;
 #else
-    sem_t sem;
+    //sem_t sem;
+    int counter;
 #endif
 };
 
@@ -30,7 +32,10 @@ struct QemuEvent {
 };
 
 struct QemuThread {
-    pthread_t thread;
+//    pthread_t thread;
+    void *(*start_routine)(void*);
+    void * arg;
+    char name[32];
 };
 
 #endif

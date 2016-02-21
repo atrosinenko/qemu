@@ -50,92 +50,129 @@ static void error_exit(int err, const char *msg)
 
 void qemu_mutex_init(QemuMutex *mutex)
 {
+    mutex->locked = 0;
+#if 0
     int err;
-
+    
     err = pthread_mutex_init(&mutex->lock, NULL);
     if (err)
         error_exit(err, __func__);
+#endif
 }
 
 void qemu_mutex_destroy(QemuMutex *mutex)
 {
+#if 0
     int err;
 
     err = pthread_mutex_destroy(&mutex->lock);
     if (err)
         error_exit(err, __func__);
+#endif
 }
 
 void qemu_mutex_lock(QemuMutex *mutex)
 {
+    if(mutex->locked)
+        abort();
+    mutex->locked = 1;
+#if 0
     int err;
 
     err = pthread_mutex_lock(&mutex->lock);
     if (err)
         error_exit(err, __func__);
+#endif
 }
 
 int qemu_mutex_trylock(QemuMutex *mutex)
 {
+    if(mutex->locked)
+    {
+        return 1;
+    }
+    else
+    {
+        mutex->locked = 1;
+        return 0;
+    }
+#if 0
     return pthread_mutex_trylock(&mutex->lock);
+#endif
 }
 
 void qemu_mutex_unlock(QemuMutex *mutex)
 {
+    mutex->locked = 0;
+#if 0
     int err;
 
     err = pthread_mutex_unlock(&mutex->lock);
     if (err)
         error_exit(err, __func__);
+#endif
 }
 
 void qemu_cond_init(QemuCond *cond)
 {
+#if 0
     int err;
 
     err = pthread_cond_init(&cond->cond, NULL);
     if (err)
         error_exit(err, __func__);
+#endif
 }
 
 void qemu_cond_destroy(QemuCond *cond)
 {
+#if 0
     int err;
 
     err = pthread_cond_destroy(&cond->cond);
     if (err)
         error_exit(err, __func__);
+#endif
 }
 
 void qemu_cond_signal(QemuCond *cond)
 {
+#if 0
     int err;
 
     err = pthread_cond_signal(&cond->cond);
     if (err)
         error_exit(err, __func__);
+#endif
 }
 
 void qemu_cond_broadcast(QemuCond *cond)
 {
+#if 0
     int err;
 
     err = pthread_cond_broadcast(&cond->cond);
     if (err)
         error_exit(err, __func__);
+#endif
 }
 
 void qemu_cond_wait(QemuCond *cond, QemuMutex *mutex)
 {
+    abort();
+#if 0
     int err;
 
     err = pthread_cond_wait(&cond->cond, &mutex->lock);
     if (err)
         error_exit(err, __func__);
+#endif
 }
 
 void qemu_sem_init(QemuSemaphore *sem, int init)
 {
+    sem->counter = init;
+#if 0
     int rc;
 
 #if defined(__APPLE__) || defined(__NetBSD__)
@@ -157,10 +194,12 @@ void qemu_sem_init(QemuSemaphore *sem, int init)
         error_exit(errno, __func__);
     }
 #endif
+#endif
 }
 
 void qemu_sem_destroy(QemuSemaphore *sem)
 {
+#if 0
     int rc;
 
 #if defined(__APPLE__) || defined(__NetBSD__)
@@ -178,10 +217,13 @@ void qemu_sem_destroy(QemuSemaphore *sem)
         error_exit(errno, __func__);
     }
 #endif
+#endif
 }
 
 void qemu_sem_post(QemuSemaphore *sem)
 {
+    ++sem->counter;
+#if 0
     int rc;
 
 #if defined(__APPLE__) || defined(__NetBSD__)
@@ -202,6 +244,7 @@ void qemu_sem_post(QemuSemaphore *sem)
         error_exit(errno, __func__);
     }
 #endif
+#endif
 }
 
 static void compute_abs_deadline(struct timespec *ts, int ms)
@@ -218,6 +261,8 @@ static void compute_abs_deadline(struct timespec *ts, int ms)
 
 int qemu_sem_timedwait(QemuSemaphore *sem, int ms)
 {
+    return sem->counter == 0 ? -1 : 0;
+#if 0
     int rc;
     struct timespec ts;
 
@@ -262,10 +307,16 @@ int qemu_sem_timedwait(QemuSemaphore *sem, int ms)
     }
     return 0;
 #endif
+#endif
 }
 
 void qemu_sem_wait(QemuSemaphore *sem)
 {
+    if(sem->counter == 0)
+        abort();
+    else
+        --sem->counter;
+#if 0
     int rc;
 
 #if defined(__APPLE__) || defined(__NetBSD__)
@@ -286,8 +337,10 @@ void qemu_sem_wait(QemuSemaphore *sem)
         error_exit(errno, __func__);
     }
 #endif
+#endif
 }
 
+#if 0
 #ifdef __linux__
 #define futex(...)              syscall(__NR_futex, __VA_ARGS__)
 
@@ -321,6 +374,7 @@ static inline void futex_wait(QemuEvent *ev, unsigned val)
     pthread_mutex_unlock(&ev->lock);
 }
 #endif
+#endif
 
 /* Valid transitions:
  * - free->set, when setting the event
@@ -342,9 +396,11 @@ static inline void futex_wait(QemuEvent *ev, unsigned val)
 
 void qemu_event_init(QemuEvent *ev, bool init)
 {
+#if 0
 #ifndef __linux__
     pthread_mutex_init(&ev->lock, NULL);
     pthread_cond_init(&ev->cond, NULL);
+#endif
 #endif
 
     ev->value = (init ? EV_SET : EV_FREE);
@@ -352,9 +408,11 @@ void qemu_event_init(QemuEvent *ev, bool init)
 
 void qemu_event_destroy(QemuEvent *ev)
 {
+#if 0
 #ifndef __linux__
     pthread_mutex_destroy(&ev->lock);
     pthread_cond_destroy(&ev->cond);
+#endif
 #endif
 }
 
@@ -363,7 +421,9 @@ void qemu_event_set(QemuEvent *ev)
     if (atomic_mb_read(&ev->value) != EV_SET) {
         if (atomic_xchg(&ev->value, EV_SET) == EV_BUSY) {
             /* There were waiters, wake them up.  */
+#if 0
             futex_wake(ev, INT_MAX);
+#endif
         }
     }
 }
@@ -396,7 +456,10 @@ void qemu_event_wait(QemuEvent *ev)
                 return;
             }
         }
+        abort();
+#if 0
         futex_wait(ev, EV_BUSY);
+#endif
     }
 }
 
@@ -450,6 +513,12 @@ void qemu_thread_create(QemuThread *thread, const char *name,
                        void *(*start_routine)(void*),
                        void *arg, int mode)
 {
+    fprintf(stderr, "Requested start of thread \"%s\".", name);
+    thread->start_routine = start_routine;
+    thread->arg = arg;
+    strncpy(thread->name, name, sizeof(thread->name));
+    thread->name[sizeof(thread->name) - 1] = 0;
+#if 0
     sigset_t set, oldset;
     int err;
     pthread_attr_t attr;
@@ -479,6 +548,7 @@ void qemu_thread_create(QemuThread *thread, const char *name,
     pthread_sigmask(SIG_SETMASK, &oldset, NULL);
 
     pthread_attr_destroy(&attr);
+#endif
 }
 
 void qemu_thread_get_self(QemuThread *thread)
@@ -498,6 +568,8 @@ void qemu_thread_exit(void *retval)
 
 void *qemu_thread_join(QemuThread *thread)
 {
+    fprintf(stderr, "qemu_thread_join called\n");
+#if 0
     int err;
     void *ret;
 
@@ -506,4 +578,5 @@ void *qemu_thread_join(QemuThread *thread)
         error_exit(err, __func__);
     }
     return ret;
+#endif
 }
