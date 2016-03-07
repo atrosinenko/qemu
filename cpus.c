@@ -1248,6 +1248,11 @@ void resume_all_vcpus(void)
 /* For temporary buffers for forming a name */
 #define VCPU_THREAD_NAME_SIZE 16
 
+void run_cpu_thread()
+{
+    tcg_cpu_thread->start_routine(tcg_cpu_thread->arg);
+}
+
 static void qemu_tcg_init_vcpu(CPUState *cpu)
 {
     char thread_name[VCPU_THREAD_NAME_SIZE];
@@ -1267,9 +1272,11 @@ static void qemu_tcg_init_vcpu(CPUState *cpu)
 #ifdef _WIN32
         cpu->hThread = qemu_thread_get_handle(cpu->thread);
 #endif
+#if 0
         while (!cpu->created) {
             qemu_cond_wait(&qemu_cpu_cond, &qemu_global_mutex);
         }
+#endif
         tcg_cpu_thread = cpu->thread;
     } else {
         cpu->thread = tcg_cpu_thread;

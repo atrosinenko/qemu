@@ -71,6 +71,7 @@ static void sigfd_handler(void *opaque)
 
 static int qemu_signal_init(void)
 {
+#if 0
     int sigfd;
     sigset_t set;
 
@@ -101,7 +102,7 @@ static int qemu_signal_init(void)
     fcntl_setfl(sigfd, O_NONBLOCK);
 
     qemu_set_fd_handler(sigfd, sigfd_handler, NULL, (void *)(intptr_t)sigfd);
-
+#endif
     return 0;
 }
 
