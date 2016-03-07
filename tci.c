@@ -159,7 +159,7 @@ static uint64_t tci_uint64(uint32_t high, uint32_t low)
 /* Read constant (native size) from bytecode. */
 static tcg_target_ulong tci_read_i(uint8_t **tb_ptr)
 {
-    tcg_target_ulong value = *(tcg_target_ulong *)(*tb_ptr);
+    tcg_target_ulong value = (tcg_target_ulong)(*(tcg_target_long_unaligned *)(*tb_ptr));
     *tb_ptr += sizeof(value);
     return value;
 }
@@ -167,7 +167,7 @@ static tcg_target_ulong tci_read_i(uint8_t **tb_ptr)
 /* Read unsigned constant (32 bit) from bytecode. */
 static uint32_t tci_read_i32(uint8_t **tb_ptr)
 {
-    uint32_t value = *(uint32_t *)(*tb_ptr);
+    uint32_t value = (uint32_t)(*(emscripten_align1_int *)(*tb_ptr));
     *tb_ptr += sizeof(value);
     return value;
 }
@@ -175,7 +175,7 @@ static uint32_t tci_read_i32(uint8_t **tb_ptr)
 /* Read signed constant (32 bit) from bytecode. */
 static int32_t tci_read_s32(uint8_t **tb_ptr)
 {
-    int32_t value = *(int32_t *)(*tb_ptr);
+    int32_t value = (int32_t)(*(emscripten_align1_int *)(*tb_ptr));
     *tb_ptr += sizeof(value);
     return value;
 }
@@ -184,7 +184,7 @@ static int32_t tci_read_s32(uint8_t **tb_ptr)
 /* Read constant (64 bit) from bytecode. */
 static uint64_t tci_read_i64(uint8_t **tb_ptr)
 {
-    uint64_t value = *(uint64_t *)(*tb_ptr);
+    uint64_t value = (uint64_t)(*(emscripten_align1_int64 *)(*tb_ptr));
     *tb_ptr += sizeof(value);
     return value;
 }
@@ -478,6 +478,7 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
 
     for (;;) {
         TCGOpcode opc = tb_ptr[0];
+        //fprintf(stderr, "%d\n", opc);
 #if !defined(NDEBUG)
         uint8_t op_size = tb_ptr[1];
         uint8_t *old_code_ptr = tb_ptr;
