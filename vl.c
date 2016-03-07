@@ -1887,6 +1887,8 @@ static bool main_loop_should_exit(void)
     return false;
 }
 
+void run_cpu_thread();
+
 static void main_loop(void)
 {
     bool nonblocking;
@@ -1894,6 +1896,8 @@ static void main_loop(void)
 #ifdef CONFIG_PROFILER
     int64_t ti;
 #endif
+    qemu_mutex_unlock_iothread();
+    run_cpu_thread();
     do {
         nonblocking = !kvm_enabled() && !xen_enabled() && last_io > 0;
 #ifdef CONFIG_PROFILER
