@@ -711,7 +711,7 @@ static void crs_range_insert(GPtrArray *ranges, uint64_t base, uint64_t limit)
     g_ptr_array_add(ranges, entry);
 }
 
-static void crs_range_free(gpointer data)
+static void crs_range_free(gpointer data, int unused)
 {
     CrsRangeEntry *entry = (CrsRangeEntry *)data;
     g_free(entry);
