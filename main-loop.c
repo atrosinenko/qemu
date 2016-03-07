@@ -212,6 +212,9 @@ static void glib_pollfds_poll(void)
 
 #define MAX_MAIN_LOOP_SPIN (1000)
 
+void do_rcu_step();
+void do_cpu_step();
+
 static int os_host_main_loop_wait(int64_t timeout)
 {
     int ret;
@@ -244,6 +247,9 @@ static int os_host_main_loop_wait(int64_t timeout)
     } else {
         spin_counter++;
     }
+    
+    do_rcu_step();
+    do_cpu_step();
 
     ret = qemu_poll_ns((GPollFD *)gpollfds->data, gpollfds->len, timeout);
 

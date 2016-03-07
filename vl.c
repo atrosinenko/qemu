@@ -1887,7 +1887,10 @@ static bool main_loop_should_exit(void)
     return false;
 }
 
-void run_cpu_thread();
+void qemu_tcg_prepare_cpu_thread();
+
+void do_rcu_step();
+void do_cpu_step();
 
 static void main_loop(void)
 {
@@ -1897,8 +1900,12 @@ static void main_loop(void)
     int64_t ti;
 #endif
     qemu_mutex_unlock_iothread();
-    run_cpu_thread();
+    qemu_tcg_prepare_cpu_thread();
+    qemu_mutex_unlock_iothread();
     do {
+        do_cpu_step();
+        do_rcu_step();
+#if 0
         nonblocking = !kvm_enabled() && !xen_enabled() && last_io > 0;
 #ifdef CONFIG_PROFILER
         ti = profile_getclock();
@@ -1906,6 +1913,7 @@ static void main_loop(void)
         last_io = main_loop_wait(nonblocking);
 #ifdef CONFIG_PROFILER
         dev_time += profile_getclock() - ti;
+#endif
 #endif
     } while (!main_loop_should_exit());
 }

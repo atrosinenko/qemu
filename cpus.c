@@ -1033,10 +1033,23 @@ static void *qemu_dummy_cpu_thread_fn(void *arg)
 }
 
 static void tcg_exec_all(void);
-
-static void *qemu_tcg_cpu_thread_fn(void *arg)
+void do_cpu_step()
 {
-    CPUState *cpu = arg;
+    tcg_exec_all();
+
+    if (use_icount) {
+        int64_t deadline = qemu_clock_deadline_ns_all(QEMU_CLOCK_VIRTUAL);
+
+        if (deadline == 0) {
+            qemu_clock_notify(QEMU_CLOCK_VIRTUAL);
+        }
+    }
+    qemu_tcg_wait_io_event();
+}
+
+void qemu_tcg_prepare_cpu_thread()
+{
+    CPUState *cpu = tcg_cpu_thread->arg;
 
     rcu_register_thread();
 
@@ -1050,7 +1063,13 @@ static void *qemu_tcg_cpu_thread_fn(void *arg)
         cpu->can_do_io = 1;
     }
     qemu_cond_signal(&qemu_cpu_cond);
+}
 
+static void *qemu_tcg_cpu_thread_fn(void *arg)
+{
+    CPUState *cpu = arg;
+    qemu_tcg_prepare_cpu_thread();
+    
     /* wait for initial kick-off after machine start */
     while (first_cpu->stopped) {
         qemu_cond_wait(tcg_halt_cond, &qemu_global_mutex);
@@ -1065,16 +1084,7 @@ static void *qemu_tcg_cpu_thread_fn(void *arg)
     exit_request = 1;
 
     while (1) {
-        tcg_exec_all();
-
-        if (use_icount) {
-            int64_t deadline = qemu_clock_deadline_ns_all(QEMU_CLOCK_VIRTUAL);
-
-            if (deadline == 0) {
-                qemu_clock_notify(QEMU_CLOCK_VIRTUAL);
-            }
-        }
-        qemu_tcg_wait_io_event();
+        do_cpu_step();
     }
 
     return NULL;
@@ -1248,10 +1258,10 @@ void resume_all_vcpus(void)
 /* For temporary buffers for forming a name */
 #define VCPU_THREAD_NAME_SIZE 16
 
-void run_cpu_thread()
-{
-    tcg_cpu_thread->start_routine(tcg_cpu_thread->arg);
-}
+//void run_cpu_thread()
+//{
+//    tcg_cpu_thread->start_routine(tcg_cpu_thread->arg);
+//}
 
 static void qemu_tcg_init_vcpu(CPUState *cpu)
 {
@@ -1434,6 +1444,7 @@ static void tcg_exec_all(void)
     for (; next_cpu != NULL && !exit_request; next_cpu = CPU_NEXT(next_cpu)) {
         CPUState *cpu = next_cpu;
 
+        fprintf(stderr, "%p\n", cpu);
         qemu_clock_enable(QEMU_CLOCK_VIRTUAL,
                           (cpu->singlestep_enabled & SSTEP_NOTIMER) == 0);
 
