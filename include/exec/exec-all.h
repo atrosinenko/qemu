@@ -205,7 +205,7 @@ void tb_phys_invalidate(TranslationBlock *tb, tb_page_addr_t page_addr);
 static inline void tb_set_jmp_target1(uintptr_t jmp_addr, uintptr_t addr)
 {
     /* patch the branch destination */
-    *(uint32_t *)jmp_addr = addr - (jmp_addr + 4);
+    stl_he_p((void*)jmp_addr, addr - (jmp_addr + 4));
     /* no need to flush icache explicitly */
 }
 #elif defined(_ARCH_PPC)

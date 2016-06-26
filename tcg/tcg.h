@@ -25,8 +25,6 @@
 #ifndef TCG_H
 #define TCG_H
 
-#include <emscripten.h>
-
 #include "qemu-common.h"
 #include "qemu/bitops.h"
 #include "tcg-target.h"
@@ -47,7 +45,6 @@
 #if TCG_TARGET_REG_BITS == 32
 typedef int32_t tcg_target_long;
 typedef uint32_t tcg_target_ulong;
-typedef emscripten_align1_int tcg_target_long_unaligned;
 #define TCG_PRIlx PRIx32
 #define TCG_PRIld PRId32
 #elif TCG_TARGET_REG_BITS == 64
