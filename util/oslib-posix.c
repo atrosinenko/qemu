@@ -127,8 +127,8 @@ void *qemu_memalign(size_t alignment, size_t size)
 /* alloc shared memory pages */
 void *qemu_anon_ram_alloc(size_t size, uint64_t *alignment)
 {
-    size_t align = QEMU_VMALLOC_ALIGN;
-    size_t total = size + align - getpagesize();
+    size_t align = 8;//QEMU_VMALLOC_ALIGN;
+    size_t total = size;// + align - getpagesize();
     void *ptr = mmap(0, total, PROT_READ | PROT_WRITE,
                      MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     size_t offset = QEMU_ALIGN_UP((uintptr_t)ptr, align) - (uintptr_t)ptr;
