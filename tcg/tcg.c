@@ -318,7 +318,7 @@ typedef struct TCGHelperInfo {
 } TCGHelperInfo;
 
 #include "exec/helper-proto.h"
-
+#include <wrappers.h>
 static const TCGHelperInfo all_helpers[] = {
 #include "exec/helper-tcg.h"
 };
