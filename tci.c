@@ -476,7 +476,6 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
     tci_reg[TCG_REG_CALL_STACK] = sp_value;
     assert(tb_ptr);
 
-    fprintf(stderr, "tb_exec\n");
     for (;;) {
         TCGOpcode opc = tb_ptr[0];
 #if !defined(NDEBUG)
@@ -1097,7 +1096,6 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
 #endif
         case INDEX_op_exit_tb:
             next_tb = ldq_he_p(tb_ptr);
-            fprintf(stderr, "go to %u\n", next_tb);
             goto exit;
             break;
         case INDEX_op_goto_tb:

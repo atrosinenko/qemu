@@ -566,7 +566,10 @@ void qemu_thread_get_self(QemuThread *thread)
 
 bool qemu_thread_is_self(QemuThread *thread)
 {
+#if 0
    return pthread_equal(pthread_self(), thread->thread);
+#endif
+   return 1;
 }
 
 void qemu_thread_exit(void *retval)

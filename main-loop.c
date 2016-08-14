@@ -214,7 +214,7 @@ static void glib_pollfds_poll(void)
 
 void do_rcu_step();
 void do_cpu_step();
-
+#include <poll.h>
 static int os_host_main_loop_wait(int64_t timeout)
 {
     int ret;
@@ -238,7 +238,7 @@ static int os_host_main_loop_wait(int64_t timeout)
             notified = true;
         }
 
-        timeout = SCALE_MS;
+        //timeout = SCALE_MS;
     }
 
     if (timeout) {
@@ -248,8 +248,6 @@ static int os_host_main_loop_wait(int64_t timeout)
         spin_counter++;
     }
     
-    do_rcu_step();
-    do_cpu_step();
 
     ret = qemu_poll_ns((GPollFD *)gpollfds->data, gpollfds->len, timeout);
 

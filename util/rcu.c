@@ -37,8 +37,6 @@
 #include "qemu/thread.h"
 #include "qemu/main-loop.h"
 
-#define INLINE_RCU 0
-
 /*
  * Global grace period counter.  Bit 0 is always one in rcu_gp_ctr.
  * Bits 1 and above are defined in synchronize_rcu.
@@ -126,10 +124,19 @@ static void wait_for_readers(void)
     QLIST_SWAP(&registry, &qsreaders, node);
 }
 
+static int rcu_depth = 0;
+
 void synchronize_rcu(void)
 {
+    // Check that mutex is not locked
     qemu_mutex_lock(&rcu_gp_lock);
-
+    qemu_mutex_unlock(&rcu_gp_lock);
+    
+    if(rcu_depth > 0)
+        abort();
+    else
+        return;
+#if 0
     if (!QLIST_EMPTY(&registry)) {
         /* In either case, the atomic_mb_set below blocks stores that free
          * old RCU-protected pointers.
@@ -150,8 +157,8 @@ void synchronize_rcu(void)
 
         wait_for_readers();
     }
-
     qemu_mutex_unlock(&rcu_gp_lock);
+#endif
 }
 
 
@@ -214,60 +221,49 @@ retry:
     return node;
 }
 
-void do_rcu_step()
-{
-#if !INLINE_RCU
+void do_rcu_step() {
     struct rcu_head *node;
-    
-    int tries = 0;
-    int n = atomic_read(&rcu_call_count);
-
+        int tries = 0;
+        int n = atomic_read(&rcu_call_count);
+//        fprintf(stderr, "RCU: %d pending tasks.\n", n);
 #if 0
-    /* Heuristically wait for a decent number of callbacks to pile up.
-     * Fetch rcu_call_count now, we only must process elements that were
-     * added before synchronize_rcu() starts.
-     */
-    while (n == 0 || (n < RCU_CALL_MIN_SIZE && ++tries <= 5)) {
-        g_usleep(10000);
-        if (n == 0) {
-            qemu_event_reset(&rcu_call_ready_event);
-            n = atomic_read(&rcu_call_count);
+        /* Heuristically wait for a decent number of callbacks to pile up.
+         * Fetch rcu_call_count now, we only must process elements that were
+         * added before synchronize_rcu() starts.
+         */
+        while (n == 0 || (n < RCU_CALL_MIN_SIZE && ++tries <= 5)) {
+            g_usleep(10000);
             if (n == 0) {
-                qemu_event_wait(&rcu_call_ready_event);
+                qemu_event_reset(&rcu_call_ready_event);
+                n = atomic_read(&rcu_call_count);
+                if (n == 0) {
+                    qemu_event_wait(&rcu_call_ready_event);
+                }
             }
+            n = atomic_read(&rcu_call_count);
         }
-        n = atomic_read(&rcu_call_count);
-    }
-#endif
-    
-    atomic_sub(&rcu_call_count, n);
-// strange infinite loop 
-//    synchronize_rcu();
-    qemu_mutex_lock_iothread();
-    fprintf(stderr, "RCU: %d pending tasks.\n", n);
-    while (n > 0) {
-        node = try_dequeue();
-        while (!node) {
-            qemu_mutex_unlock_iothread();
-            qemu_event_reset(&rcu_call_ready_event);
-            node = try_dequeue();
-            if (!node) {
-                qemu_event_wait(&rcu_call_ready_event);
-                node = try_dequeue();
-            }
-            qemu_mutex_lock_iothread();
-        }
+#endif        
 
-        n--;
-        //fprintf(stderr, "rcu: %d %d\n", node, node->func);
-        // KLUDGE
-        if(node->func)
+        atomic_sub(&rcu_call_count, n);
+        synchronize_rcu();
+        qemu_mutex_lock_iothread();
+        while (n > 0) {
+            node = try_dequeue();
+            while (!node) {
+                qemu_mutex_unlock_iothread();
+                qemu_event_reset(&rcu_call_ready_event);
+                node = try_dequeue();
+                if (!node) {
+                    qemu_event_wait(&rcu_call_ready_event);
+                    node = try_dequeue();
+                }
+                qemu_mutex_lock_iothread();
+            }
+
+            n--;
             node->func(node);
-        else
-            fprintf(stderr, "rcu: null function\n");
-    }
-    qemu_mutex_unlock_iothread();
-#endif
+        }
+        qemu_mutex_unlock_iothread();
 }
 
 static void *call_rcu_thread(void *opaque)
@@ -283,16 +279,10 @@ static void *call_rcu_thread(void *opaque)
 
 void call_rcu1(struct rcu_head *node, void (*func)(struct rcu_head *node))
 {
-    //fprintf(stderr, "call_rcu1: %d\n", func);
     node->func = func;
-    if(!func) abort();
-#if INLINE_RCU
-    node->func(node);
-#else
     enqueue(node);
     atomic_inc(&rcu_call_count);
     qemu_event_set(&rcu_call_ready_event);
-#endif
 }
 
 void rcu_register_thread(void)

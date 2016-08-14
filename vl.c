@@ -123,6 +123,10 @@ int main(int argc, char **argv)
 #include "exec/semihost.h"
 #include "crypto/init.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #define MAX_VIRTIO_CONSOLES 1
 #define MAX_SCLP_CONSOLES 1
 
@@ -1892,6 +1896,25 @@ void qemu_tcg_prepare_cpu_thread();
 void do_rcu_step();
 void do_cpu_step();
 
+void prepare_main_loop() {
+    qemu_mutex_unlock_iothread();
+    qemu_tcg_prepare_cpu_thread();
+    qemu_mutex_unlock_iothread();
+}
+
+void main_loop_step() {
+    static count;
+	static int last_io = 0;
+    if(count++ > 100) {
+        fprintf(stderr, "Tick\n");
+        count = 0;
+    }
+    do_rcu_step();
+    do_cpu_step();
+    last_io = main_loop_wait(true);
+    main_loop_should_exit();
+}
+
 static void main_loop(void)
 {
     bool nonblocking;
@@ -1899,12 +1922,10 @@ static void main_loop(void)
 #ifdef CONFIG_PROFILER
     int64_t ti;
 #endif
-    qemu_mutex_unlock_iothread();
-    qemu_tcg_prepare_cpu_thread();
-    qemu_mutex_unlock_iothread();
+    prepare_main_loop();
     do {
-        do_cpu_step();
         do_rcu_step();
+        do_cpu_step();
 #if 0
         nonblocking = !kvm_enabled() && !xen_enabled() && last_io > 0;
 #ifdef CONFIG_PROFILER
@@ -4635,7 +4656,13 @@ int main(int argc, char **argv, char **envp)
         }
     }
 
-    main_loop();
+    //main_loop();
+    prepare_main_loop();
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop(main_loop_step, 100, true);
+#else
+	while(1) main_loop_step();
+#endif
     bdrv_close_all();
     pause_all_vcpus();
     res_free();

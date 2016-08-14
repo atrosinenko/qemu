@@ -1063,6 +1063,10 @@ void qemu_tcg_prepare_cpu_thread()
         cpu->can_do_io = 1;
     }
     qemu_cond_signal(&qemu_cpu_cond);
+
+    CPU_FOREACH(cpu) {
+        qemu_wait_io_event_common(cpu);
+    }
 }
 
 static void *qemu_tcg_cpu_thread_fn(void *arg)
@@ -1444,7 +1448,6 @@ static void tcg_exec_all(void)
     for (; next_cpu != NULL && !exit_request; next_cpu = CPU_NEXT(next_cpu)) {
         CPUState *cpu = next_cpu;
 
-        fprintf(stderr, "%p\n", cpu);
         qemu_clock_enable(QEMU_CLOCK_VIRTUAL,
                           (cpu->singlestep_enabled & SSTEP_NOTIMER) == 0);
 
