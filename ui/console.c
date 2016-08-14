@@ -253,9 +253,11 @@ static void gui_setup_refresh(DisplayState *ds)
 void graphic_hw_update(QemuConsole *con)
 {
     if (!con) {
+        fprintf(stderr, "Console switch\n");
         con = active_console;
     }
     if (con && con->hw_ops->gfx_update) {
+        fprintf(stderr, "gfx_update\n");
         con->hw_ops->gfx_update(con->hw);
     }
 }
@@ -421,6 +423,7 @@ static void vga_putcharxy(QemuConsole *s, int x, int y, int ch,
     DisplaySurface *surface = qemu_console_surface(s);
     pixman_color_t fgcol, bgcol;
 
+    //fprintf(stderr, "Putchar %c %p\n", ch, surface);
     if (t_attrib->invers) {
         bgcol = color_table_rgb[t_attrib->bold][t_attrib->fgcol];
         fgcol = color_table_rgb[t_attrib->bold][t_attrib->bgcol];

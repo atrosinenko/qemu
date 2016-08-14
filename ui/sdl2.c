@@ -54,8 +54,13 @@ static void sdl_update_caption(struct sdl2_console *scon);
 static struct sdl2_console *get_scon_from_window(uint32_t window_id)
 {
     int i;
+    fprintf(stderr, "%d %p: ", window_id, SDL_GetWindowFromID(window_id));
+    for (i = 0; i < sdl2_num_outputs; i++) {
+        fprintf(stderr, "%p ", sdl2_console[i].real_window);
+    }
     for (i = 0; i < sdl2_num_outputs; i++) {
         if (sdl2_console[i].real_window == SDL_GetWindowFromID(window_id)) {
+            fprintf(stderr, "\nConsole number %d\n", i);
             return &sdl2_console[i];
         }
     }
@@ -563,6 +568,7 @@ static void handle_windowevent(SDL_Event *ev)
         }
         break;
     case SDL_WINDOWEVENT_SHOWN:
+        sdl2_redraw(scon);
         if (scon->hidden) {
             SDL_HideWindow(scon->real_window);
         }

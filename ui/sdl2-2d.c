@@ -50,6 +50,8 @@ void sdl2_2d_update(DisplayChangeListener *dcl,
     rect.w = w;
     rect.h = h;
 
+    fprintf(stderr, "UPDATE %p\n", surf);
+
     SDL_UpdateTexture(scon->texture, NULL, surface_data(surf),
                       surface_stride(surf));
     SDL_RenderCopy(scon->real_renderer, scon->texture, &rect, &rect);
