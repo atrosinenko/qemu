@@ -1896,6 +1896,7 @@ void qemu_tcg_prepare_cpu_thread();
 void do_rcu_step();
 void do_cpu_step();
 void process_pools();
+void repaint_screen();
 
 void prepare_main_loop() {
     qemu_mutex_unlock_iothread();
@@ -1903,18 +1904,28 @@ void prepare_main_loop() {
     qemu_mutex_unlock_iothread();
 }
 
+volatile int main_loop_flag = 0;
+
 void main_loop_step() {
     static count;
-	static int last_io = 0;
+    static int last_io = 0;
+    if(main_loop_flag)
+        abort();
+    main_loop_flag = 1;
     if(count++ > 100) {
-        fprintf(stderr, "Tick\n");
+//        fprintf(stderr, "Tick\n");
         count = 0;
     }
     do_rcu_step();
     for(int i = 0; i < 100; ++i) do_cpu_step();
     process_pools();
+    //repaint_screen();
     last_io = main_loop_wait(true);
     main_loop_should_exit();
+#ifdef __EMSCRIPTEN__
+    emscripten_sleep(1);
+#endif
+    main_loop_flag = 0;
 }
 
 static void main_loop(void)
@@ -4660,11 +4671,13 @@ int main(int argc, char **argv, char **envp)
 
     //main_loop();
     prepare_main_loop();
-#ifdef __EMSCRIPTEN__
+#if 0
+//#ifdef __EMSCRIPTEN__
     emscripten_set_main_loop(main_loop_step, 100, true);
 #else
-	while(1) main_loop_step();
+    while(1) main_loop_step();
 #endif
+    fprintf(stderr, "Exiting QEMU\n");
     bdrv_close_all();
     pause_all_vcpus();
     res_free();
