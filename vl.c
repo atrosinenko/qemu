@@ -1910,7 +1910,7 @@ void main_loop_step() {
         count = 0;
     }
     do_rcu_step();
-    do_cpu_step();
+    for(int i = 0; i < 100; ++i) do_cpu_step();
     last_io = main_loop_wait(true);
     main_loop_should_exit();
 }

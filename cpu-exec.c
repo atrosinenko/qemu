@@ -397,7 +397,7 @@ int cpu_exec(CPUState *cpu)
     init_delay_params(&sc, cpu);
 
     /* prepare setjmp context for exception handling */
-    for(int index1 = 0; index1 < 300; ++index1) {
+    for(int index1 = 0; index1 < 1; ++index1) {
         if (sigsetjmp(cpu->jmp_env, 0) == 0) {
             /* if an exception is pending, we execute it here */
             if (cpu->exception_index >= 0) {
@@ -429,7 +429,7 @@ int cpu_exec(CPUState *cpu)
 
             next_tb = 0; /* force lookup of first TB */
             //for(;;) {
-            for(int index2 = 0; index2 < 300; ++index2) {
+            for(int index2 = 0; index2 < 70; ++index2) {
                 interrupt_request = cpu->interrupt_request;
                 if (unlikely(interrupt_request)) {
                     if (unlikely(cpu->singlestep_enabled & SSTEP_NOIRQ)) {
@@ -576,6 +576,9 @@ int cpu_exec(CPUState *cpu)
                 spin_unlock(&tcg_ctx.tb_ctx.tb_lock);
                 have_tb_lock = false;
             }
+
+			ret = 0;
+			break;
         }
     } /* for(;;) */
 
