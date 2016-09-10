@@ -253,11 +253,11 @@ static void gui_setup_refresh(DisplayState *ds)
 void graphic_hw_update(QemuConsole *con)
 {
     if (!con) {
-        fprintf(stderr, "Console switch\n");
+//        fprintf(stderr, "Console switch\n");
         con = active_console;
     }
     if (con && con->hw_ops->gfx_update) {
-        fprintf(stderr, "gfx_update\n");
+//        fprintf(stderr, "gfx_update\n");
         con->hw_ops->gfx_update(con->hw);
     }
 }

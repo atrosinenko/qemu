@@ -317,6 +317,7 @@ void qemu_input_event_send(QemuConsole *src, InputEvent *evt)
 
     /* send event */
     s = qemu_input_find_handler(1 << evt->kind, src);
+//    fprintf(stderr, "%s %p\n", __FUNCTION__, s);
     if (!s) {
         return;
     }
@@ -338,6 +339,7 @@ void qemu_input_event_sync(void)
         if (!s->events) {
             continue;
         }
+//        fprintf(stderr, "%s %p\n", __FUNCTION__, s);
         if (s->handler->sync) {
             s->handler->sync(s->dev);
         }
@@ -359,6 +361,7 @@ void qemu_input_event_send_key(QemuConsole *src, KeyValue *key, bool down)
 {
     InputEvent *evt;
     evt = qemu_input_event_new_key(key, down);
+    //???
     if (QTAILQ_EMPTY(&kbd_queue)) {
         qemu_input_event_send(src, evt);
         qemu_input_event_sync();

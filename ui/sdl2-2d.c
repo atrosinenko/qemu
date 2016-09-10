@@ -36,6 +36,11 @@ void sdl2_2d_update(DisplayChangeListener *dcl,
     DisplaySurface *surf = qemu_console_surface(dcl->con);
     SDL_Rect rect;
 
+    x = 0;
+    y = 0;
+    w = surface_width(scon->surface);
+    h = surface_height(scon->surface);
+
     assert(!scon->opengl);
 
     if (!surf) {
@@ -49,8 +54,6 @@ void sdl2_2d_update(DisplayChangeListener *dcl,
     rect.y = y;
     rect.w = w;
     rect.h = h;
-
-    fprintf(stderr, "UPDATE %p\n", surf);
 
     SDL_UpdateTexture(scon->texture, NULL, surface_data(surf),
                       surface_stride(surf));

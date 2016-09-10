@@ -53,6 +53,7 @@ void sdl2_process_key(struct sdl2_console *scon,
     int qcode = sdl2_scancode_to_qcode[ev->keysym.scancode];
     QemuConsole *con = scon ? scon->dcl.con : NULL;
 
+//    fprintf(stderr, "Key: type = %d scancode = %d qcode = %d\n", ev->type, ev->keysym.scancode, qcode);
     if (!qemu_console_is_graphic(con)) {
         if (ev->type == SDL_KEYDOWN) {
             switch (ev->keysym.scancode) {
