@@ -1,3 +1,5 @@
+/build-native*
+/build-emscripten*
 /config-devices.*
 /config-all-devices.*
 /config-all-disas.*
