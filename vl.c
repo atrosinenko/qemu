@@ -1895,6 +1895,7 @@ void qemu_tcg_prepare_cpu_thread();
 
 void do_rcu_step();
 void do_cpu_step();
+void process_pools();
 
 void prepare_main_loop() {
     qemu_mutex_unlock_iothread();
@@ -1911,6 +1912,7 @@ void main_loop_step() {
     }
     do_rcu_step();
     for(int i = 0; i < 100; ++i) do_cpu_step();
+    process_pools();
     last_io = main_loop_wait(true);
     main_loop_should_exit();
 }

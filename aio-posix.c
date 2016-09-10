@@ -230,6 +230,8 @@ static void add_pollfd(AioHandler *node)
     npfd++;
 }
 
+void process_pools();
+
 bool aio_poll(AioContext *ctx, bool blocking)
 {
     AioHandler *node;
@@ -268,6 +270,7 @@ bool aio_poll(AioContext *ctx, bool blocking)
     if (timeout) {
         aio_context_release(ctx);
     }
+    process_pools();
     ret = qemu_poll_ns((GPollFD *)pollfds, npfd, timeout);
     if (blocking) {
         atomic_sub(&ctx->notify_me, 2);

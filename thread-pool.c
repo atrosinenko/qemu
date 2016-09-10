@@ -74,18 +74,21 @@ struct ThreadPool {
     bool stopping;
 };
 
-static void *worker_thread(void *opaque)
-{
-    ThreadPool *pool = opaque;
+#define MAX_POOLS 100
+ThreadPool *pools[MAX_POOLS];
 
+static void process_pool(ThreadPool *pool) {
+//    fprintf(stderr, "Entering thread pool\n");
     qemu_mutex_lock(&pool->lock);
-    pool->pending_threads--;
-    do_spawn_thread(pool);
-
     while (!pool->stopping) {
         ThreadPoolElement *req;
         int ret;
 
+        if(QTAILQ_EMPTY(&pool->request_list)) {
+//            fprintf(stderr, "Leaving thread pool\n");
+            qemu_mutex_unlock(&pool->lock);
+            return;
+        }
         do {
             pool->idle_threads++;
             qemu_mutex_unlock(&pool->lock);
@@ -113,6 +116,27 @@ static void *worker_thread(void *opaque)
 
         qemu_bh_schedule(pool->completion_bh);
     }
+
+    fprintf(stderr, "Leaving thread pool\n");
+}
+
+void process_pools()
+{
+    for(int i = 0; i < MAX_POOLS; ++i)
+        if(pools[i] && pools[i]->pending_threads)
+            process_pool(pools[i]);
+}
+
+static void *worker_thread(void *opaque)
+{
+    ThreadPool *pool = opaque;
+
+    qemu_mutex_lock(&pool->lock);
+    pool->pending_threads--;
+    do_spawn_thread(pool);
+    qemu_mutex_unlock(&pool->lock);
+
+    process_pool(pool);
 
     pool->cur_threads--;
     qemu_cond_signal(&pool->worker_stopped);
@@ -308,6 +332,13 @@ ThreadPool *thread_pool_new(AioContext *ctx)
 {
     ThreadPool *pool = g_new(ThreadPool, 1);
     thread_pool_init_one(pool, ctx);
+    int i;
+    for(i = 0; i < MAX_POOLS; ++i)
+        if(!pools[i])
+            break;
+    if(i >= MAX_POOLS)
+        abort();
+    pools[i] = pool;
     return pool;
 }
 
@@ -316,6 +347,9 @@ void thread_pool_free(ThreadPool *pool)
     if (!pool) {
         return;
     }
+    for(int i = 0; i < MAX_POOLS; ++i)
+        if(pools[i] == pool)
+            pools[i] = NULL;
 
     assert(QLIST_EMPTY(&pool->head));
 
