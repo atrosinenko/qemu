@@ -1524,7 +1524,7 @@ int main(void) { return tls_var; }
 EOF
 
 if ! compile_prog "-Werror" "" ; then
-    error_exit "Your compiler does not support the __thread specifier for " \
+    echo "ERROR: Your compiler does not support the __thread specifier for " \
 	"Thread-Local Storage (TLS). Please upgrade to a version that does."
 fi
 
