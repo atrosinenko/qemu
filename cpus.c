@@ -927,6 +927,7 @@ static void qemu_tcg_wait_io_event(void)
        /* Start accounting real time to the virtual clock if the CPUs
           are idle.  */
         qemu_clock_warp(QEMU_CLOCK_VIRTUAL);
+        break; // TODO
         qemu_cond_wait(tcg_halt_cond, &qemu_global_mutex);
     }
 
