@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  */
 
-#include "tcg-be-null.h"
+#include "tcg-be-null-emscripten.h"
 
 /* TODO list:
  * - See TODO comments in code.

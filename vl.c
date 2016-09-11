@@ -1891,16 +1891,7 @@ static bool main_loop_should_exit(void)
     return false;
 }
 
-void qemu_tcg_prepare_cpu_thread();
-
-void do_rcu_step();
-void do_cpu_step();
-void process_pools();
-void repaint_screen();
-void update_qemu_stats();
-void init_emscripten_codegen()
-
-void prepare_main_loop() {
+static void prepare_main_loop() {
     qemu_mutex_unlock_iothread();
     qemu_tcg_prepare_cpu_thread();
     qemu_mutex_unlock_iothread();
@@ -1908,8 +1899,8 @@ void prepare_main_loop() {
 
 volatile int main_loop_flag = 0;
 
-void main_loop_step() {
-    static count;
+static void main_loop_step() {
+    static int count;
     static int last_io = 0;
     if(main_loop_flag)
         abort();

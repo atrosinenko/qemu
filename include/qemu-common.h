@@ -599,4 +599,16 @@ int parse_debug_env(const char *name, int max, int initial);
 
 const char *qemu_ether_ntoa(const MACAddr *mac);
 
+
+
+void qemu_tcg_prepare_cpu_thread(void);
+void do_rcu_step(void);
+void do_cpu_step(void);
+void process_pools(void);
+void update_qemu_stats(void);
+void init_emscripten_codegen(void);
+void on_tb_start(int tb_ptr);
+void on_tb_end(int tb_ptr);
+void invalidate_tb(int tb_ptr);
+
 #endif
