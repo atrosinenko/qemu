@@ -132,6 +132,7 @@ static __attribute__((unused)) inline void tcg_out8(TCGContext *s, uint8_t v)
 static __attribute__((unused)) inline void tcg_patch8(tcg_insn_unit *p,
                                                       uint8_t v)
 {
+    invalidate_tb(p);
     *p = v;
 }
 #endif
@@ -151,6 +152,7 @@ static __attribute__((unused)) inline void tcg_out16(TCGContext *s, uint16_t v)
 static __attribute__((unused)) inline void tcg_patch16(tcg_insn_unit *p,
                                                        uint16_t v)
 {
+    invalidate_tb(p);
     if (TCG_TARGET_INSN_UNIT_SIZE == 2) {
         *p = v;
     } else {
@@ -174,6 +176,7 @@ static __attribute__((unused)) inline void tcg_out32(TCGContext *s, uint32_t v)
 static __attribute__((unused)) inline void tcg_patch32(tcg_insn_unit *p,
                                                        uint32_t v)
 {
+    invalidate_tb(p);
     if (TCG_TARGET_INSN_UNIT_SIZE == 4) {
         *p = v;
     } else {
@@ -197,6 +200,7 @@ static __attribute__((unused)) inline void tcg_out64(TCGContext *s, uint64_t v)
 static __attribute__((unused)) inline void tcg_patch64(tcg_insn_unit *p,
                                                        uint64_t v)
 {
+    invalidate_tb(p);
     if (TCG_TARGET_INSN_UNIT_SIZE == 8) {
         *p = v;
     } else {

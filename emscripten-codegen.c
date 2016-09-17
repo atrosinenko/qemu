@@ -21,7 +21,7 @@ void init_emscripten_codegen()
 #endif
 }
 
-void get_tb_start_and_length(int ptr, int *start, int *length);
+int get_tb_start_and_length(int ptr, int *start, int *length);
 
 #ifdef __EMSCRIPTEN__
 
@@ -58,7 +58,9 @@ static uint8_t *tb_try_execute(CPUArchState *env, int tb_key, uint8_t *tb_ptr, u
 void invalidate_tb(int tb_ptr)
 {
     int start, length;
-    get_tb_start_and_length(tb_ptr, &start, &length);
+    if(!get_tb_start_and_length(tb_ptr, &start, &length))
+        return;
+    fprintf(stderr, "Invalidating %08x\n", start);
     EM_ASM_ARGS({
         CompiledTB[$0] = null;
     }, start);
@@ -219,12 +221,20 @@ static void tci_compare32(TCGCond condition)
 # define qemu_st_beq \
     helper_be_stq_mmu
 
+unsigned long long mul_unsigned_long_long(unsigned long long x, unsigned long long y)
+{
+    return x * y;
+}
+
 // based on tci.c
 static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
 {
     ptr = translation_buf;
-    OUT("CompiledTB[%d] = function(tb_ptr, env, sp_value) {\n", tb_ptr);
+    OUT("CompiledTB[0x%08x] = function(tb_ptr, env, sp_value) {\n", tb_ptr);
     OUT("  \"use strict\";\n");
+    OUT("  tb_ptr = tb_ptr|0;\n");
+    OUT("  env = env|0;\n");
+    OUT("  sp_value = sp_value|0;\n");
     OUT("  var u0 = 0, u1 = 0, u2 = 0, u3 = 0, result = 0;\n");
     WR_REG32(TCG_AREG0); OUT("%d;\n", env);
     WR_REG32(TCG_REG_CALL_STACK); OUT("sp_value;\n");
@@ -283,7 +293,7 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
         case INDEX_op_br:
             label = tci_read_label(&tb_ptr);
             assert(tb_ptr == old_code_ptr + op_size);
-            OUT("    tb_ptr = %u;\n", label);
+            OUT("    tb_ptr = 0x%08x;\n", label);
             OUT("    continue;");
             break;
         case INDEX_op_setcond_i32:
@@ -318,10 +328,10 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
 
         case INDEX_op_ld8u_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0);
-            OUT("HEAPU8[(");
+            OUT("    u0 = ");
             tci_gen_ri(&tb_ptr);
-            OUT(") + (%d)];\n", tci_read_s32(&tb_ptr));
+            OUT(") + (%d);\n", tci_read_s32(&tb_ptr));
+            WR_REG32(t0); OUT("HEAPU8[u0];\n");
             break;
         case INDEX_op_ld8s_i32:
         case INDEX_op_ld16u_i32:
@@ -333,37 +343,40 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
         case INDEX_op_ld_i32:
             t0 = *tb_ptr++;
             // TODO check alignment
-            WR_REG32(t0); OUT("HEAPU32[(");
+            OUT("    u0 = ");
             tci_gen_ri(&tb_ptr);
-            t2 = tci_read_s32(&tb_ptr);
-            OUT(" + (%d)) >> 2];\n", (int)t2);
+            OUT(" + (%d);\n", (int)tci_read_s32(&tb_ptr));
+            OUT("    if(u0 % 4 != 0) throw \"bad alignment\";\n");
+            WR_REG32(t0); OUT("HEAPU32[u0 >> 2];\n");
             break;
         case INDEX_op_st8_i32:
             OUT("    u0 = (");
             tci_gen_ri(&tb_ptr);
             OUT(">>>0) & 255;\n");
-            OUT("    HEAPU8[");
+            OUT("    u1 = ");
             tci_gen_ri(&tb_ptr);
-            t2 = tci_read_s32(&tb_ptr);
-            OUT(" + (%d)] = u0;\n", (int)t2);
+            OUT(" + (%d);\n", (int)tci_read_s32(&tb_ptr));
+            OUT("    HEAPU8[u1] = u0;\n");
             break;
         case INDEX_op_st16_i32:
             OUT("   u0 = (");
             tci_gen_ri(&tb_ptr);
             OUT(">>>0) & 65535;\n");
-            OUT("    HEAPU16[(");
+            OUT("    u1 = ");
             tci_gen_ri(&tb_ptr);
-            t2 = tci_read_s32(&tb_ptr);
-            OUT(" + (%d)) >> 1] = u0;\n", (int)t2);
+            OUT(" + (%d);\n", (int)tci_read_s32(&tb_ptr));
+            OUT("    if(u1 % 2 != 0) throw \"bad alignment\";\n");
+            OUT("    HEAPU16[u1 >> 1] = u0;\n");
             break;
         case INDEX_op_st_i32:
             OUT("    u0 = (");
             tci_gen_ri(&tb_ptr);
             OUT(">>>0);\n");
-            OUT("    HEAPU32[(");
+            OUT("    u1 = ");
             tci_gen_ri(&tb_ptr);
-            t2 = tci_read_s32(&tb_ptr);
-            OUT(" + (%d)) >> 2] = u0;\n", (int)t2);
+            OUT(" + (%d);\n", (int)tci_read_s32(&tb_ptr));
+            OUT("    if(u1 % 4 != 0) throw \"bad alignment\";\n");
+            OUT("    HEAPU32[u1 >> 2] = u0;\n");
             break;
 
             /* Arithmetic operations (32 bit). */
@@ -515,9 +528,9 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
             label = tci_read_label(&tb_ptr);
             tci_compare32(condition);
             OUT("    if(result) {\n");
-            OUT("      tb_ptr = %u;\n", label);
+            OUT("      tb_ptr = 0x%08x;\n", label);
             OUT("      continue;\n");
-            OUT("    }");
+            OUT("    }\n");
             break;
         case INDEX_op_add2_i32:
             t0 = *tb_ptr++;
@@ -556,7 +569,7 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
             t1 = *tb_ptr++;
             OUT("    u0 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
             OUT("    u1 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            WR_REG32(t0); OUT("Module.___muldi3(u0, 0, u1, 0);\n");
+            WR_REG32(t0); OUT("Module._mul_unsigned_long_long(u0, 0, u1, 0);\n");
             WR_REG32(t1); OUT("Runtime.getTempRet0();\n");
             break;
 #if TCG_TARGET_HAS_ext8s_i32
@@ -630,12 +643,12 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
         case INDEX_op_exit_tb:
             next_tb = ldq_he_p(tb_ptr);
             tb_ptr += 8;
-            OUT("    return %u;\n", (unsigned int)next_tb);
+            OUT("    return 0x%08x;\n", (unsigned int)next_tb);
             break;
         case INDEX_op_goto_tb:
             t0 = tci_read_i32(&tb_ptr);
-            OUT("    tb_ptr = %u;\n", tb_ptr + t0);
-            OUT("    continue;");
+            OUT("    tb_ptr = 0x%08x;\n", tb_ptr + t0);
+            OUT("    continue;\n");
             break;
         case INDEX_op_qemu_ld_i32:
             t0 = *tb_ptr++;
@@ -798,7 +811,9 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
         assert(tb_ptr == old_code_ptr + op_size);
     }
     assert(tb_ptr == end_ptr);
-    OUT("  default: throw \"unknown tb_ptr\";\n");
+    OUT("  default:\n");
+//    OUT("    Module.printErr(\"Strange tb_ptr: \" + tb_ptr);\n");
+    OUT("    return -tb_ptr;\n");
     OUT("  }\n");
     OUT("  }\n");
     
@@ -813,11 +828,12 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
     uintptr_t sp_value = (uintptr_t)(tcg_temps + CPU_TEMP_BUF_NLONGS);
     
     int start, length;
-    get_tb_start_and_length(tb_ptr, &start, &length);
+    assert(get_tb_start_and_length(tb_ptr, &start, &length));
     
     tb_count += 1;
-    int res = tb_try_execute(env, start, tb_ptr, sp_value);
-    //fprintf(stderr, "res = %d\n", res);
+    int res;
+    while((res = tb_try_execute(env, start, tb_ptr, sp_value)) < 0) { /* repeat */ };
+//    fprintf(stderr, "res = %d\n", res);
     if(res == TB_INTERPRET)
     {
         return tcg_qemu_tb_exec_real(env, tb_ptr);
