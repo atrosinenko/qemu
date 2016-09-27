@@ -4,6 +4,7 @@
 #include <map>
 
 extern "C" void invalidate_tb(int tb_ptr);
+extern "C" void fast_invalidate_tb(int tb_ptr);
 
 static int tb_start;
 static std::map<int, int> tb_length;
@@ -31,4 +32,14 @@ extern "C" int get_tb_start_and_length(int ptr, int *start, int *length)
     *start = it->first;
     *length = it->second;
     return (*start <= ptr) && (ptr < *start + *length);
+}
+
+extern "C" void invalidate_range(int start_, int end_)
+{
+    std::map<int, int>::const_iterator start = tb_length.lower_bound(start_);
+    std::map<int, int>::const_iterator end = tb_length.lower_bound(end_);
+    if(start->first != start_ && start != tb_length.begin() && start != tb_length.end())
+        --start;
+    for(std::map<int, int>::const_iterator it = start; it != end; ++it)
+        fast_invalidate_tb(it->first);
 }

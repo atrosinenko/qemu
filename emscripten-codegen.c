@@ -24,7 +24,15 @@ void init_emscripten_codegen()
             _i64Add: Module._i64Add,
             _i64Subtract: Module._i64Subtract,
             _mul_unsigned_long_long: Module._mul_unsigned_long_long,
-            getThrew: function() { return asm.__THREW__; },
+            Math_imul: Math.imul,
+            execute_if_compiled: function(tb_ptr, env, sp_value, depth) {
+                var fun = CompiledTB[tb_ptr|0];
+                if((depth|0) < 10 && fun != undefined && fun != null)
+                    return fun(tb_ptr|0, env|0, sp_value|0, ((depth|0) + 1)|0)|0;
+                else
+                    return -(tb_ptr|0);
+            },
+            getThrew: function() { return asm.__THREW__|0; },
             abort: function() { throw "abort"; },
             qemu_ld_ub: Module._helper_ret_ldub_mmu,
             qemu_ld_leuw: Module._helper_le_lduw_mmu,
@@ -64,15 +72,22 @@ static double get_time()
 
 static uint8_t *tb_try_execute(CPUArchState *env, int tb_key, uint8_t *tb_ptr, uintptr_t sp_value)
 {
-    return EM_ASM_INT({
+    return (uint8_t *) EM_ASM_INT({
         var fun = CompiledTB[$1|0];
         if((fun !== undefined) && (fun != null)) {
-            return fun($2|0, $0|0, $3|0);
+            return fun($2|0, $0|0, $3|0, 0)|0;
         }
         var tmp = TBCount[$1|0] | 0;
-        TBCount[$1|0] = tmp + 1;
+        TBCount[$1|0] = (tmp + 1) | 0;
         return (tmp >= 100) ? 321 : 123;
     }, env, tb_key, tb_ptr, sp_value);
+}
+
+void fast_invalidate_tb(int tb_ptr)
+{
+    EM_ASM_ARGS({
+        CompiledTB[$0|0] = null;
+    }, tb_ptr);
 }
 
 void invalidate_tb(int tb_ptr)
@@ -80,11 +95,9 @@ void invalidate_tb(int tb_ptr)
     int start, length;
     if(!get_tb_start_and_length(tb_ptr, &start, &length))
         return;
-    fprintf(stderr, "Invalidating %08x\n", start);
-    EM_ASM_ARGS({
-        CompiledTB[$0|0] = null;
-    }, start);
+    fast_invalidate_tb(start);
 }
+
 
 void update_qemu_stats()
 {
@@ -109,7 +122,8 @@ void update_qemu_stats()
 }
 
 
-static char translation_buf[1000000];
+#define TRANSLATION_BUF_SIZE 1000000
+static char translation_buf[TRANSLATION_BUF_SIZE];
 
 /* Read constant (native size) from bytecode. */
 static tcg_target_ulong tci_read_i(uint8_t **tb_ptr)
@@ -142,7 +156,15 @@ static tcg_target_ulong tci_read_label(uint8_t **tb_ptr)
     return label;
 }
 
-#define OUT(...) ptr += sprintf(ptr, __VA_ARGS__)
+void translation_overflow()
+{
+    fprintf(stderr, "translation buffer overflow\n");
+    abort();
+}
+
+#define OUT(...) {if(ptr > translation_buf + TRANSLATION_BUF_SIZE - 1000) \
+                     translation_overflow(); \
+                 ptr += sprintf(ptr, __VA_ARGS__);}
 
 #define WR_REG32(regnum) OUT("    HEAPU32[%d] = ", ((int)(tci_reg + (regnum))) >> 2)
 
@@ -220,19 +242,20 @@ unsigned long long mul_unsigned_long_long(unsigned long long x, unsigned long lo
     return x * y;
 }
 
+void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth);
+
 // based on tci.c
 static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
 {
     ptr = translation_buf;
-    const int base_tb_ptr = (int) tb_ptr;
     OUT("CompiledTB[0x%08x] = function(stdlib, ffi, heap) {\n", (unsigned int)tb_ptr);
     OUT("\"use asm\";\n");
-    OUT("var HEAP8 = new stdlib.Int8Array(buffer);\n");
-    OUT("var HEAP16 = new stdlib.Int16Array(buffer);\n");
-    OUT("var HEAP32 = new stdlib.Int32Array(buffer);\n");
-    OUT("var HEAPU8 = new stdlib.Uint8Array(buffer);\n");
-    OUT("var HEAPU16 = new stdlib.Uint16Array(buffer);\n");
-    OUT("var HEAPU32 = new stdlib.Uint32Array(buffer);\n");
+    OUT("var HEAP8 = new stdlib.Int8Array(heap);\n");
+    OUT("var HEAP16 = new stdlib.Int16Array(heap);\n");
+    OUT("var HEAP32 = new stdlib.Int32Array(heap);\n");
+    OUT("var HEAPU8 = new stdlib.Uint8Array(heap);\n");
+    OUT("var HEAPU16 = new stdlib.Uint16Array(heap);\n");
+    OUT("var HEAPU32 = new stdlib.Uint32Array(heap);\n");
     OUT("\n");
 
     OUT("var dynCall_iiiiiiiiiii = ffi.dynCall_iiiiiiiiiii;\n");
@@ -240,7 +263,9 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
     OUT("var badAlignment = ffi.badAlignment;\n");
     OUT("var _i64Add = ffi._i64Add;\n");
     OUT("var _i64Subtract = ffi._i64Subtract;\n");
+    OUT("var Math_imul = ffi.Math_imul;\n");
     OUT("var _mul_unsigned_long_long = ffi._mul_unsigned_long_long;\n");
+    OUT("var execute_if_compiled = ffi.execute_if_compiled;\n");
     OUT("var getThrew = ffi.getThrew;\n");
     OUT("var abort = ffi.abort;\n");
     OUT("var qemu_ld_ub = ffi.qemu_ld_ub;\n");
@@ -255,21 +280,41 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
     OUT("var qemu_st_bel = ffi.qemu_st_bel;\n");
 
     OUT("\n");
-    OUT("function tb_fun(tb_ptr, env, sp_value) {\n");
+    OUT("function tb_fun(tb_ptr, env, sp_value, depth) {\n");
     OUT("  tb_ptr = tb_ptr|0;\n");
     OUT("  env = env|0;\n");
     OUT("  sp_value = sp_value|0;\n");
+    OUT("  depth = depth|0;\n");
     OUT("  var u0 = 0, u1 = 0, u2 = 0, u3 = 0, result = 0;\n");
     WR_REG32(TCG_AREG0); OUT("env|0;\n");
     WR_REG32(TCG_REG_CALL_STACK); OUT("sp_value|0;\n");
-    OUT("  while(1) {\n");
-    OUT("  switch(((tb_ptr|0) - %u)|0) {\n", (unsigned int)base_tb_ptr);
 
-    int next_tb;
+    OUT("  START: do {\n");
+    codegen_main(tb_ptr, tb_ptr + length, tb_ptr, 0);
+    OUT("    break;\n");
+    OUT("  } while(1); abort(); return 0|0;\n");
     
-    uint8_t *end_ptr = tb_ptr + length;
-    //fprintf(stderr, "%d %d %d\n", tb_ptr, length, end_ptr);
-    while(tb_ptr < end_ptr) {
+    OUT("}\n");
+    OUT("return {tb_fun: tb_fun};\n");
+    OUT("}(window, CompilerFFI, Module.buffer)[\"tb_fun\"]\n");
+}
+
+void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth)
+{
+    if(depth > 30)
+        abort();
+    for(;;) {
+        if(!tb_ptr) {
+            fprintf(stderr, "tb_ptr == NULL\n");
+            OUT("abort();\n");
+            return;
+        }
+
+        if(tb_ptr < tb_start || tb_ptr >= tb_end)
+        {
+            OUT("    return execute_if_compiled(%u|0, env|0, sp_value|0, depth|0) | 0;\n", (unsigned int)tb_ptr);
+            return;
+        }
         TCGOpcode opc = tb_ptr[0];
 #if !defined(NDEBUG)
         uint8_t op_size = tb_ptr[1];
@@ -281,40 +326,39 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
         TCGCond condition;
         TCGMemOpIdx oi;
 
-        OUT("  case %d:\n", (int)tb_ptr - base_tb_ptr);
-        
-#if defined(GETPC)
-        tci_tb_ptr = (uintptr_t)tb_ptr;
-#endif
-
+        int start, length;
         /* Skip opcode and size entry. */
         tb_ptr += 2;
         switch (opc) {
         case INDEX_op_call:
             // TODO ASYNC
             BEFORE_CALL;
-            WR_REG32(TCG_REG_R0); OUT("dynCall_iiiiiiiiiii(");
-            tci_gen_ri(&tb_ptr); OUT(", ");
-            RD_REGU32(0); OUT(", ");
-            RD_REGU32(1); OUT(", ");
-            RD_REGU32(2); OUT(", ");
-            RD_REGU32(3); OUT(", ");
+            WR_REG32(TCG_REG_R0); OUT("dynCall_iiiiiiiiiii((");
+            tci_gen_ri(&tb_ptr); OUT(")|0, (");
+            RD_REGU32(0); OUT(")|0, (");
+            RD_REGU32(1); OUT(")|0, (");
+            RD_REGU32(2); OUT(")|0, (");
+            RD_REGU32(3); OUT(")|0, (");
             // No reg #4 !!!
-            RD_REGU32(5); OUT(", ");
-            RD_REGU32(6); OUT(", ");
-            RD_REGU32(7); OUT(", ");
-            RD_REGU32(8); OUT(", ");
-            RD_REGU32(9); OUT(", ");
-            RD_REGU32(10); OUT(")|0;\n");
+            RD_REGU32(5); OUT(")|0, (");
+            RD_REGU32(6); OUT(")|0, (");
+            RD_REGU32(7); OUT(")|0, (");
+            RD_REGU32(8); OUT(")|0, (");
+            RD_REGU32(9); OUT(")|0, (");
+            RD_REGU32(10); OUT(")|0)|0;\n");
             AFTER_CALL;
             WR_REG32(TCG_REG_R1); OUT("getTempRet0()|0;\n");
             break;
         case INDEX_op_br:
             label = tci_read_label(&tb_ptr);
             assert(tb_ptr == old_code_ptr + op_size);
-            OUT("    tb_ptr = 0x%08x;\n", label);
-            OUT("    continue;");
-            break;
+            tb_ptr = (uint8_t *) label;
+            if(tb_ptr == tb_start)
+            {
+                OUT("    continue START;\n");
+                return;
+            }
+            continue;
         case INDEX_op_setcond_i32:
             t0 = *tb_ptr++;
             OUT("    u0 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
@@ -365,7 +409,7 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
             OUT("    u0 = (");
             tci_gen_ri(&tb_ptr);
             OUT(" + (%d))|0;\n", (int)tci_read_s32(&tb_ptr));
-            OUT("    if((u0|0) %% 4 != 0) badAlignment();\n");
+//             OUT("    if(((u0|0) %% 4) | 0 != 0) badAlignment();\n");
             WR_REG32(t0); OUT("HEAPU32[(u0|0) >> 2]>>>0;\n");
             break;
         case INDEX_op_st8_i32:
@@ -384,7 +428,7 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
             OUT("    u1 = (");
             tci_gen_ri(&tb_ptr);
             OUT(" + (%d))|0;\n", (int)tci_read_s32(&tb_ptr));
-            OUT("    if((u1|0) %% 2 != 0) badAlignment();\n");
+//             OUT("    if(((u1|0) %% 2) | 0 != 0) badAlignment();\n");
             OUT("    HEAPU16[(u1|0) >> 1] = u0>>>0;\n");
             break;
         case INDEX_op_st_i32:
@@ -394,7 +438,7 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
             OUT("    u1 = (");
             tci_gen_ri(&tb_ptr);
             OUT(" + (%d))|0;\n", (int)tci_read_s32(&tb_ptr));
-            OUT("    if((u1|0) %% 4 != 0) badAlignment();\n");
+//             OUT("    if(((u1|0) %% 4) | 0 != 0) badAlignment();\n");
             OUT("    HEAPU32[(u1|0) >> 2] = u0>>>0;\n");
             break;
 
@@ -419,11 +463,11 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
         case INDEX_op_mul_i32:
             t0 = *tb_ptr++;
             WR_REG32(t0);
-            OUT("Math_imul(");
+            OUT("Math_imul((");
             tci_gen_ri(&tb_ptr);
-            OUT(", ");
+            OUT(")|0, (");
             tci_gen_ri(&tb_ptr);
-            OUT(")|0;\n");
+            OUT(")|0)|0;\n");
             break;
 #if TCG_TARGET_HAS_div_i32
         case INDEX_op_div_i32:
@@ -547,8 +591,14 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
             label = tci_read_label(&tb_ptr);
             tci_compare32(condition);
             OUT("    if(result|0) {\n");
-            OUT("      tb_ptr = 0x%08x;\n", label);
-            OUT("      continue;\n");
+            if(label == tb_start)
+            {
+                OUT("    continue START;\n");
+            }
+            else
+            {
+                codegen_main(tb_start, tb_end, (uint8_t *) label, depth + 1);
+            }
             OUT("    }\n");
             break;
         case INDEX_op_add2_i32:
@@ -660,15 +710,18 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
             TODO();
             break;
         case INDEX_op_exit_tb:
-            next_tb = ldq_he_p(tb_ptr);
-            tb_ptr += 8;
-            OUT("    return 0x%08x;\n", (unsigned int)next_tb);
-            break;
+            OUT("    return 0x%08x|0;\n", (unsigned int)ldq_he_p(tb_ptr));
+            return;
         case INDEX_op_goto_tb:
             t0 = tci_read_i32(&tb_ptr);
-            OUT("    tb_ptr = 0x%08x;\n", (unsigned int)(tb_ptr + t0));
-            OUT("    continue;\n");
-            break;
+            assert(tb_ptr == old_code_ptr + op_size);
+            tb_ptr += (int32_t)t0;
+            if(tb_ptr == tb_start)
+            {
+                OUT("    continue START;\n");
+                return;
+            }
+            continue;
         case INDEX_op_qemu_ld_i32:
             t0 = *tb_ptr++;
             OUT("    u0 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
@@ -680,25 +733,25 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
             WR_REG32(t0); 
             switch (get_memop(oi) & (MO_BSWAP | MO_SSIZE)) {
             case MO_UB:
-                OUT("qemu_ld_ub(env|0, u0|0, %u, %u) & 255;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_ub(env|0, u0|0, %u, %u) | 0) & 255;\n", oi, (unsigned int)tb_ptr);
                 break;
             case MO_SB:
-                OUT("qemu_ld_ub(env|0, u0|0, %u, %u) << 24 >> 24;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_ub(env|0, u0|0, %u, %u) | 0) << 24 >> 24;\n", oi, (unsigned int)tb_ptr);
                 break;
             case MO_LEUW:
-                OUT("qemu_ld_leuw(env|0, u0|0, %u, %u) & 65535;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_leuw(env|0, u0|0, %u, %u) | 0) & 65535;\n", oi, (unsigned int)tb_ptr);
                 break;
             case MO_LESW:
-                OUT("qemu_ld_leuw(env|0, u0|0, %u, %u) << 16 >> 16;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_leuw(env|0, u0|0, %u, %u) | 0) << 16 >> 16;\n", oi, (unsigned int)tb_ptr);
                 break;
             case MO_LEUL:
                 OUT("qemu_ld_leul(env|0, u0|0, %u, %u)|0;\n", oi, (unsigned int)tb_ptr);
                 break;
             case MO_BEUW:
-                OUT("qemu_ld_beuw(env|0, u0|0, %u, %u) & 65535;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_beuw(env|0, u0|0, %u, %u) | 0) & 65535;\n", oi, (unsigned int)tb_ptr);
                 break;
             case MO_BESW:
-                OUT("qemu_ld_beuw(env|0, u0|0, %u, %u) << 16 >> 16;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_beuw(env|0, u0|0, %u, %u) | 0) << 16 >> 16;\n", oi, (unsigned int)tb_ptr);
                 break;
             case MO_BEUL:
                 OUT("qemu_ld_beul(env|0, u0|0, %u, %u)|0;\n", oi, (unsigned int)tb_ptr);
@@ -768,16 +821,16 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
             BEFORE_CALL;
             switch (get_memop(oi) & (MO_BSWAP | MO_SIZE)) {
             case MO_UB:
-                OUT("    qemu_st_b(env|0, u1|0, u0 & 255, %u, %u);\n", oi, (unsigned int)tb_ptr);
+                OUT("    qemu_st_b(env|0, u1|0, (u0 & 255)|0, %u, %u);\n", oi, (unsigned int)tb_ptr);
                 break;
             case MO_LEUW:
-                OUT("    qemu_st_lew(env|0, u1|0, u0 & 65535, %u, %u);\n", oi, (unsigned int)tb_ptr);
+                OUT("    qemu_st_lew(env|0, u1|0, (u0 & 65535)|0, %u, %u);\n", oi, (unsigned int)tb_ptr);
                 break;
             case MO_LEUL:
                 OUT("    qemu_st_lel(env|0, u1|0, u0|0, %u, %u);\n", oi, (unsigned int)tb_ptr);
                 break;
             case MO_BEUW:
-                OUT("    qemu_st_bew(env|0, u1|0, u0 & 65535, %u, %u);\n", oi, (unsigned int)tb_ptr);
+                OUT("    qemu_st_bew(env|0, u1|0, (u0 & 65535)|0, %u, %u);\n", oi, (unsigned int)tb_ptr);
                 break;
             case MO_BEUL:
                 OUT("    qemu_st_bel(env|0, u1|0, u0|0, %u, %u);\n", oi, (unsigned int)tb_ptr);
@@ -824,16 +877,6 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
         }
         assert(tb_ptr == old_code_ptr + op_size);
     }
-    assert(tb_ptr == end_ptr);
-    OUT("  default:\n");
-//    OUT("    Module.printErr(\"Strange tb_ptr: \" + tb_ptr);\n");
-    OUT("    return (-tb_ptr)|0;\n");
-    OUT("  }\n");
-    OUT("  }\n");
-    
-    OUT("}\n");
-    OUT("return {tb_fun: tb_fun};\n");
-    OUT("}(window, CompilerFFI, Module.buffer)[\"tb_fun\"]\n");
 }
 
 uintptr_t tcg_qemu_tb_exec_real(CPUArchState *env, uint8_t *tb_ptr);

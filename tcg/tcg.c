@@ -2434,6 +2434,7 @@ int tcg_gen_code(TCGContext *s, tcg_insn_unit *gen_code_buf)
     return tcg_current_code_size(s);
 }
 
+// TODO ???
 /* Return the index of the micro operation such as the pc after is <
    offset bytes from the start of the TB.  The contents of gen_code_buf must
    not be changed, though writing the same values is ok.

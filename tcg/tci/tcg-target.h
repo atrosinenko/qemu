@@ -178,8 +178,11 @@ void tci_disas(uint8_t opc);
 
 #define HAVE_TCG_QEMU_TB_EXEC
 
+void invalidate_range(int start, int end);
+
 static inline void flush_icache_range(uintptr_t start, uintptr_t stop)
 {
+    invalidate_range(start, stop);
 }
 
 #endif /* TCG_TARGET_H */
