@@ -156,7 +156,7 @@ static tcg_target_ulong tci_read_label(uint8_t **tb_ptr)
     return label;
 }
 
-void translation_overflow()
+static void translation_overflow()
 {
     fprintf(stderr, "translation buffer overflow\n");
     abort();
@@ -166,17 +166,9 @@ void translation_overflow()
                      translation_overflow(); \
                  ptr += sprintf(ptr, __VA_ARGS__);}
 
-#define WR_REG32(regnum) OUT("    HEAPU32[%d] = ", ((int)(tci_reg + (regnum))) >> 2)
+#define WR_REG32(regnum) { loaded |= (1 << (regnum)); dirty |= (1 << (regnum)); OUT("    r%d = ", (regnum)); }
 
-#define RD_REGS32(regnum) OUT("(HEAP32[%d]|0)", ((int)(tci_reg + (regnum)) >> 2))
-#define RD_REGS16(regnum) OUT("(HEAP16[%d]|0)", ((int)(tci_reg + (regnum)) >> 1))
-#define RD_REGS8 (regnum) OUT("(HEAP8 [%d]|0)", ((int)(tci_reg + (regnum)) >> 0))
-
-#define RD_REGU32(regnum) OUT("(HEAPU32[%d]>>>0)", ((int)(tci_reg + (regnum)) >> 2))
-#define RD_REGU16(regnum) OUT("(HEAPU16[%d]>>>0)", ((int)(tci_reg + (regnum)) >> 1))
-#define RD_REGU8 (regnum) OUT("(HEAPU8 [%d]>>>0)", ((int)(tci_reg + (regnum)) >> 0))
-
-#define BEFORE_CALL
+#define BEFORE_CALL { write_dirty_regs(dirty); dirty = 0; } // may be longjmp
 #define AFTER_CALL OUT("if(getThrew() | 0) abort();\n")
 
 static char *ptr = translation_buf;
@@ -185,52 +177,80 @@ extern tcg_target_ulong tci_reg[TCG_TARGET_NB_REGS];
 
 #define TODO() {fprintf(stderr, "Unimplemented opcode: %d\n", opc); abort();}
 
+#define CONST0 41
+#define CONST1 42
+#define CONST2 42
+#define CONST3 43
+
+static void load_reg(int regnum, int *loaded)
+{
+    if((*loaded) & (1 << regnum))
+        return;
+    OUT("    r%d = HEAPU32[%d]|0;\n", regnum, ((int)(tci_reg + regnum)) >> 2);
+    *loaded |= 1 << regnum;
+}
+
 /* Read indexed register or constant (native size) from bytecode. */
-static void tci_gen_ri(uint8_t **tb_ptr)
+static int tci_load_ri(uint8_t **tb_ptr, int const_reg, int *loaded)
 {
     TCGReg r = **tb_ptr;
     *tb_ptr += 1;
+
+    int dest = r == TCG_CONST ? const_reg : r;
+
     if (r == TCG_CONST) {
-        OUT("(%u>>>0)", tci_read_i(tb_ptr));
+        OUT("    r%d = %u;\n", dest, tci_read_i(tb_ptr));
     } else {
-        RD_REGU32(r);
+        load_reg(r, loaded);
+    }
+    return dest;
+}
+
+static void write_dirty_regs(int dirty)
+{
+    for(int i = 0; i < TCG_TARGET_NB_REGS; ++i)
+    {
+        if(dirty & (1 << i))
+        {
+            OUT("    HEAPU32[%d] = r%d;\n", ((int)(tci_reg + i)) >> 2, i);
+        }
     }
 }
 
 // TODO tci_read_ulong 64-bit guest
 
-static void tci_compare32(TCGCond condition)
+static void tci_compare32(TCGCond condition, int arg1, int arg2)
 {
     switch (condition) {
     case TCG_COND_EQ:
-        OUT("    result = ((u0|0) == (u1|0))|0;\n");
+        OUT("    result = ((r%d|0) == (r%d|0))|0;\n", arg1, arg2);
         break;
     case TCG_COND_NE:
-        OUT("    result = ((u0|0) != (u1|0))|0;\n");
+        OUT("    result = ((r%d|0) != (r%d|0))|0;\n", arg1, arg2);
         break;
     case TCG_COND_LT:
-        OUT("    result = ((u0|0) < (u1|0))|0;\n");
+        OUT("    result = ((r%d|0) < (r%d|0))|0;\n", arg1, arg2);
         break;
     case TCG_COND_GE:
-        OUT("    result = ((u0|0) >= (u1|0))|0;\n");
+        OUT("    result = ((r%d|0) >= (r%d|0))|0;\n", arg1, arg2);
         break;
     case TCG_COND_LE:
-        OUT("    result = ((u0|0) <= (u1|0))|0;\n");
+        OUT("    result = ((r%d|0) <= (r%d|0))|0;\n", arg1, arg2);
         break;
     case TCG_COND_GT:
-        OUT("    result = ((u0|0) > (u1|0))|0;\n");
+        OUT("    result = ((r%d|0) > (r%d|0))|0;\n", arg1, arg2);
         break;
     case TCG_COND_LTU:
-        OUT("    result = ((u0>>>0) < (u1>>>0))|0;\n");
+        OUT("    result = ((r%d>>>0) < (r%d>>>0))|0;\n", arg1, arg2);
         break;
     case TCG_COND_GEU:
-        OUT("    result = ((u0>>>0) >= (u1>>>0))|0;\n");
+        OUT("    result = ((r%d>>>0) >= (r%d>>>0))|0;\n", arg1, arg2);
         break;
     case TCG_COND_LEU:
-        OUT("    result = ((u0>>>0) <= (u1>>>0))|0;\n");
+        OUT("    result = ((r%d>>>0) <= (r%d>>>0))|0;\n", arg1, arg2);
         break;
     case TCG_COND_GTU:
-        OUT("    result = ((u0>>>0) > (u1>>>0))|0;\n");
+        OUT("    result = ((r%d>>>0) > (r%d>>>0))|0;\n", arg1, arg2);
         break;
     default:
         abort();
@@ -242,7 +262,7 @@ unsigned long long mul_unsigned_long_long(unsigned long long x, unsigned long lo
     return x * y;
 }
 
-void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth);
+void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth, int loaded, int dirty);
 
 // based on tci.c
 static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
@@ -286,11 +306,18 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
     OUT("  sp_value = sp_value|0;\n");
     OUT("  depth = depth|0;\n");
     OUT("  var u0 = 0, u1 = 0, u2 = 0, u3 = 0, result = 0;\n");
+    OUT("  var r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;\n");
+    OUT("  var r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0;\n");
+    OUT("  var r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0, r27 = 0, r28 = 0, r29 = 0;\n");
+    OUT("  var r30 = 0, r31 = 0, r41 = 0, r42 = 0, r43 = 0, r44 = 0;\n");
+
+    int loaded = 0;
+    int dirty = 0;
     WR_REG32(TCG_AREG0); OUT("env|0;\n");
     WR_REG32(TCG_REG_CALL_STACK); OUT("sp_value|0;\n");
 
     OUT("  START: do {\n");
-    codegen_main(tb_ptr, tb_ptr + length, tb_ptr, 0);
+    codegen_main(tb_ptr, tb_ptr + length, tb_ptr, 0, loaded, dirty);
     OUT("    break;\n");
     OUT("  } while(1); abort(); return 0|0;\n");
     
@@ -299,7 +326,7 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
     OUT("}(window, CompilerFFI, Module.buffer)[\"tb_fun\"]\n");
 }
 
-void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth)
+void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth, int loaded, int dirty)
 {
     if(depth > 30)
         abort();
@@ -312,6 +339,7 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
 
         if(tb_ptr < tb_start || tb_ptr >= tb_end)
         {
+            write_dirty_regs(dirty);
             OUT("    return execute_if_compiled(%u|0, env|0, sp_value|0, depth|0) | 0;\n", (unsigned int)tb_ptr);
             return;
         }
@@ -320,6 +348,7 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
         uint8_t op_size = tb_ptr[1];
         uint8_t *old_code_ptr = tb_ptr;
 #endif
+        int reg0, reg1, reg2, reg3;
         unsigned int t0;
         unsigned int t1;
         unsigned int label;
@@ -332,20 +361,12 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
         switch (opc) {
         case INDEX_op_call:
             // TODO ASYNC
+            for(int ind = 0; ind <= 10; ++ind)
+                if(ind != 4)
+                    load_reg(ind, &loaded);
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
             BEFORE_CALL;
-            WR_REG32(TCG_REG_R0); OUT("dynCall_iiiiiiiiiii((");
-            tci_gen_ri(&tb_ptr); OUT(")|0, (");
-            RD_REGU32(0); OUT(")|0, (");
-            RD_REGU32(1); OUT(")|0, (");
-            RD_REGU32(2); OUT(")|0, (");
-            RD_REGU32(3); OUT(")|0, (");
-            // No reg #4 !!!
-            RD_REGU32(5); OUT(")|0, (");
-            RD_REGU32(6); OUT(")|0, (");
-            RD_REGU32(7); OUT(")|0, (");
-            RD_REGU32(8); OUT(")|0, (");
-            RD_REGU32(9); OUT(")|0, (");
-            RD_REGU32(10); OUT(")|0)|0;\n");
+            WR_REG32(TCG_REG_R0); OUT("dynCall_iiiiiiiiiii(r%d|0, r0|0, r1|0, r2|0, r3|0, /*r4|0,*/ r5|0, r6|0, r7|0, r8|0, r9|0, r10|0) | 0;\n", reg0);
             AFTER_CALL;
             WR_REG32(TCG_REG_R1); OUT("getTempRet0()|0;\n");
             break;
@@ -355,16 +376,17 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             tb_ptr = (uint8_t *) label;
             if(tb_ptr == tb_start)
             {
+                write_dirty_regs(dirty);
                 OUT("    continue START;\n");
                 return;
             }
             continue;
         case INDEX_op_setcond_i32:
             t0 = *tb_ptr++;
-            OUT("    u0 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            OUT("    u1 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
             condition = *tb_ptr++;
-            tci_compare32(condition);
+            tci_compare32(condition, reg0, reg1);
             WR_REG32(t0); OUT("result|0;\n");
             break;
         case INDEX_op_setcond2_i32:
@@ -377,9 +399,8 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             break;
         case INDEX_op_mov_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0);
-            tci_gen_ri(&tb_ptr);
-            OUT(";\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            WR_REG32(t0); OUT("r%d|0;\n", reg0);
             break;
         case INDEX_op_movi_i32:
             t0 = *tb_ptr++;
@@ -391,10 +412,9 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
 
         case INDEX_op_ld8u_i32:
             t0 = *tb_ptr++;
-            OUT("    u0 = (");
-            tci_gen_ri(&tb_ptr);
-            OUT(") + (%d))|0;\n", tci_read_s32(&tb_ptr));
-            WR_REG32(t0); OUT("HEAPU8[u0]&255;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            t1 = tci_read_s32(&tb_ptr);
+            WR_REG32(t0); OUT("HEAPU8[(r%d + (%d))|0]&255;\n", reg0, t1);
             break;
         case INDEX_op_ld8s_i32:
         case INDEX_op_ld16u_i32:
@@ -405,102 +425,74 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             break;
         case INDEX_op_ld_i32:
             t0 = *tb_ptr++;
-            // TODO check alignment
-            OUT("    u0 = (");
-            tci_gen_ri(&tb_ptr);
-            OUT(" + (%d))|0;\n", (int)tci_read_s32(&tb_ptr));
-//             OUT("    if(((u0|0) %% 4) | 0 != 0) badAlignment();\n");
-            WR_REG32(t0); OUT("HEAPU32[(u0|0) >> 2]>>>0;\n");
+            // TODO check alignment -- unneeded?
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            t1 = tci_read_s32(&tb_ptr);
+            WR_REG32(t0); OUT("HEAPU32[((r%d + (%d))|0) >> 2] | 0;\n", reg0, t1);
             break;
         case INDEX_op_st8_i32:
-            OUT("    u0 = (");
-            tci_gen_ri(&tb_ptr);
-            OUT(">>>0) & 255;\n");
-            OUT("    u1 = (");
-            tci_gen_ri(&tb_ptr);
-            OUT(" + (%d))|0;\n", (int)tci_read_s32(&tb_ptr));
-            OUT("    HEAPU8[u1|0] = u0>>>0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            t1 = tci_read_s32(&tb_ptr);
+            OUT("    HEAPU8[(r%d + (%d))|0] = r%d & 255;\n", reg1, t1, reg0);
             break;
         case INDEX_op_st16_i32:
-            OUT("    u0 = (");
-            tci_gen_ri(&tb_ptr);
-            OUT(">>>0) & 65535;\n");
-            OUT("    u1 = (");
-            tci_gen_ri(&tb_ptr);
-            OUT(" + (%d))|0;\n", (int)tci_read_s32(&tb_ptr));
-//             OUT("    if(((u1|0) %% 2) | 0 != 0) badAlignment();\n");
-            OUT("    HEAPU16[(u1|0) >> 1] = u0>>>0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            t1 = tci_read_s32(&tb_ptr);
+            OUT("    HEAPU16[(r%d + (%d)) >> 1] = r%d & 65535;\n", reg1, t1, reg0);
             break;
         case INDEX_op_st_i32:
-            OUT("    u0 = (");
-            tci_gen_ri(&tb_ptr);
-            OUT(">>>0);\n");
-            OUT("    u1 = (");
-            tci_gen_ri(&tb_ptr);
-            OUT(" + (%d))|0;\n", (int)tci_read_s32(&tb_ptr));
-//             OUT("    if(((u1|0) %% 4) | 0 != 0) badAlignment();\n");
-            OUT("    HEAPU32[(u1|0) >> 2] = u0>>>0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            t1 = tci_read_s32(&tb_ptr);
+            OUT("    HEAPU32[(r%d + (%d)) >> 2] = r%d;\n", reg1, t1, reg0);
             break;
 
             /* Arithmetic operations (32 bit). */
 
         case INDEX_op_add_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT(") + (");
-            tci_gen_ri(&tb_ptr);
-            OUT("))|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d|0) + (r%d|0))|0;\n", reg0, reg1);
             break;
         case INDEX_op_sub_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT(") - (");
-            tci_gen_ri(&tb_ptr);
-            OUT("))|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d|0) - (r%d|0))|0;\n", reg0, reg1);
             break;
         case INDEX_op_mul_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0);
-            OUT("Math_imul((");
-            tci_gen_ri(&tb_ptr);
-            OUT(")|0, (");
-            tci_gen_ri(&tb_ptr);
-            OUT(")|0)|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("Math_imul(r%d|0, r%d|0)|0;\n", reg0, reg1);
             break;
 #if TCG_TARGET_HAS_div_i32
         case INDEX_op_div_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT("|0) / (");
-            tci_gen_ri(&tb_ptr);
-            OUT("|0))&-1;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d|0) / (r%d|0))&-1;\n", reg0, reg1);
             break;
         case INDEX_op_divu_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT(">>>0) / (");
-            tci_gen_ri(&tb_ptr);
-            OUT(">>>0))&-1;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d>>>0) / (r%d>>>0))&-1;\n", reg0, reg1);
             break;
         case INDEX_op_rem_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT("|0) %% (");
-            tci_gen_ri(&tb_ptr);
-            OUT("|0))&-1;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d|0) %% (r%d|0))&-1;\n", reg0, reg1);
             break;
         case INDEX_op_remu_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT(">>>0) %% (");
-            tci_gen_ri(&tb_ptr);
-            OUT(">>>0))&-1;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d>>>0) %% (r%d>>>0))&-1;\n", reg0, reg1);
             break;
 #elif TCG_TARGET_HAS_div2_i32
         case INDEX_op_div2_i32:
@@ -510,54 +502,42 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
 #endif
         case INDEX_op_and_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT(") & (");
-            tci_gen_ri(&tb_ptr);
-            OUT("))|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d|0) & (r%d|0))|0;\n", reg0, reg1);
             break;
         case INDEX_op_or_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT(") | (");
-            tci_gen_ri(&tb_ptr);
-            OUT("))|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d|0) | (r%d|0))|0;\n", reg0, reg1);
             break;
         case INDEX_op_xor_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT(") ^ (");
-            tci_gen_ri(&tb_ptr);
-            OUT("))|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d|0) ^ (r%d|0))|0;\n", reg0, reg1);
             break;
 
             /* Shift/rotate operations (32 bit). */
 
         case INDEX_op_shl_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT(") << ((");
-            tci_gen_ri(&tb_ptr);
-            OUT(">>>0) & 31))|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d|0) << ((r%d>>>0) & 31))|0;\n", reg0, reg1);
             break;
         case INDEX_op_shr_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT(") >>> ((");
-            tci_gen_ri(&tb_ptr);
-            OUT(">>>0) & 31))|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d|0) >>> ((r%d>>>0) & 31))|0;\n", reg0, reg1);
             break;
         case INDEX_op_sar_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT(") >> ((");
-            tci_gen_ri(&tb_ptr);
-            OUT(">>>0) & 31))|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("((r%d|0) >> ((r%d>>>0) & 31))|0;\n", reg0, reg1);
             break;
 #if 0 //TCG_TARGET_HAS_rot_i32
         case INDEX_op_rotl_i32:
@@ -585,40 +565,41 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             break;
 #endif
         case INDEX_op_brcond_i32:
-            OUT("    u0 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            OUT("    u1 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
             condition = *tb_ptr++;
             label = tci_read_label(&tb_ptr);
-            tci_compare32(condition);
+            tci_compare32(condition, reg0, reg1);
             OUT("    if(result|0) {\n");
             if(label == tb_start)
             {
+                write_dirty_regs(dirty);
                 OUT("    continue START;\n");
             }
             else
             {
-                codegen_main(tb_start, tb_end, (uint8_t *) label, depth + 1);
+                codegen_main(tb_start, tb_end, (uint8_t *) label, depth + 1, loaded, dirty);
             }
             OUT("    }\n");
             break;
         case INDEX_op_add2_i32:
             t0 = *tb_ptr++;
             t1 = *tb_ptr++;
-            OUT("    u0 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            OUT("    u1 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            OUT("    u2 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            OUT("    u3 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            WR_REG32(t0); OUT("_i64Add(u0|0, u1|0, u2|0, u3|0)|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            reg2 = tci_load_ri(&tb_ptr, CONST2, &loaded);
+            reg3 = tci_load_ri(&tb_ptr, CONST3, &loaded);
+            WR_REG32(t0); OUT("_i64Add(r%d|0, r%d|0, r%d|0, r%d|0)|0;\n", reg0, reg1, reg2, reg3);
             WR_REG32(t1); OUT("getTempRet0()|0;\n");
             break;
         case INDEX_op_sub2_i32:
             t0 = *tb_ptr++;
             t1 = *tb_ptr++;
-            OUT("    u0 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            OUT("    u1 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            OUT("    u2 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            OUT("    u3 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            WR_REG32(t0); OUT("_i64Subtract(u0|0, u1|0, u2|0, u3|0)|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            reg2 = tci_load_ri(&tb_ptr, CONST2, &loaded);
+            reg3 = tci_load_ri(&tb_ptr, CONST3, &loaded);
+            WR_REG32(t0); OUT("_i64Subtract(r%d|0, r%d|0, r%d|0, r%d|0)|0;\n", reg0, reg1, reg2, reg3);
             WR_REG32(t1); OUT("getTempRet0()|0;\n");
             break;
         case INDEX_op_brcond2_i32:
@@ -636,41 +617,37 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
         case INDEX_op_mulu2_i32:
             t0 = *tb_ptr++;
             t1 = *tb_ptr++;
-            OUT("    u0 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            OUT("    u1 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            WR_REG32(t0); OUT("_mul_unsigned_long_long(u0|0, 0, u1|0, 0)|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            WR_REG32(t0); OUT("_mul_unsigned_long_long(r%d|0, 0, r%d|0, 0)|0;\n", reg0, reg1);
             WR_REG32(t1); OUT("getTempRet0()|0;\n");
             break;
 #if TCG_TARGET_HAS_ext8s_i32
         case INDEX_op_ext8s_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("(");
-            tci_gen_ri(&tb_ptr);
-            OUT("|0) << 24 >> 24;");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            WR_REG32(t0); OUT("(r%d|0) << 24 >> 24;\n", reg0);
             break;
 #endif
 #if TCG_TARGET_HAS_ext16s_i32
         case INDEX_op_ext16s_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("(");
-            tci_gen_ri(&tb_ptr);
-            OUT("|0) << 16 >> 16;");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            WR_REG32(t0); OUT("(r%d|0) << 16 >> 16;\n", reg0);
             break;
 #endif
 #if TCG_TARGET_HAS_ext8u_i32
         case INDEX_op_ext8u_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("(");
-            tci_gen_ri(&tb_ptr);
-            OUT(") & 255;");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            WR_REG32(t0); OUT("(r%d|0) & 255;\n", reg0);
             break;
 #endif
 #if TCG_TARGET_HAS_ext16u_i32
         case INDEX_op_ext16u_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("(");
-            tci_gen_ri(&tb_ptr);
-            OUT(") & 65535;");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            WR_REG32(t0); OUT("(r%d|0) & 65535;\n", reg0);
             break;
 #endif
 #if 0 // TCG_TARGET_HAS_bswap16_i32
@@ -690,17 +667,15 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
 #if TCG_TARGET_HAS_not_i32
         case INDEX_op_not_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("((");
-            tci_gen_ri(&tb_ptr);
-            OUT("|0)^-1)|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            WR_REG32(t0); OUT("((r%d|0) ^ -1) | 0;\n", reg0);
             break;
 #endif
 #if TCG_TARGET_HAS_neg_i32
         case INDEX_op_neg_i32:
             t0 = *tb_ptr++;
-            WR_REG32(t0); OUT("(0 - (");
-            tci_gen_ri(&tb_ptr);
-            OUT("))|0;\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            WR_REG32(t0); OUT("(0 - (r%d|0)) | 0;\n", reg0);
             break;
 #endif
 
@@ -710,6 +685,7 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             TODO();
             break;
         case INDEX_op_exit_tb:
+            write_dirty_regs(dirty);
             OUT("    return 0x%08x|0;\n", (unsigned int)ldq_he_p(tb_ptr));
             return;
         case INDEX_op_goto_tb:
@@ -718,13 +694,14 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             tb_ptr += (int32_t)t0;
             if(tb_ptr == tb_start)
             {
+                write_dirty_regs(dirty);
                 OUT("    continue START;\n");
                 return;
             }
             continue;
         case INDEX_op_qemu_ld_i32:
             t0 = *tb_ptr++;
-            OUT("    u0 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
             oi = tci_read_i(&tb_ptr);
             // TODO check width and signedness
             
@@ -733,28 +710,28 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             WR_REG32(t0); 
             switch (get_memop(oi) & (MO_BSWAP | MO_SSIZE)) {
             case MO_UB:
-                OUT("(qemu_ld_ub(env|0, u0|0, %u, %u) | 0) & 255;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_ub(env|0, r%d|0, %u, %u) | 0) & 255;\n", reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_SB:
-                OUT("(qemu_ld_ub(env|0, u0|0, %u, %u) | 0) << 24 >> 24;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_ub(env|0, r%d|0, %u, %u) | 0) << 24 >> 24;\n", reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_LEUW:
-                OUT("(qemu_ld_leuw(env|0, u0|0, %u, %u) | 0) & 65535;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_leuw(env|0, r%d|0, %u, %u) | 0) & 65535;\n", reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_LESW:
-                OUT("(qemu_ld_leuw(env|0, u0|0, %u, %u) | 0) << 16 >> 16;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_leuw(env|0, r%d|0, %u, %u) | 0) << 16 >> 16;\n", reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_LEUL:
-                OUT("qemu_ld_leul(env|0, u0|0, %u, %u)|0;\n", oi, (unsigned int)tb_ptr);
+                OUT("qemu_ld_leul(env|0, r%d|0, %u, %u)|0;\n", reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_BEUW:
-                OUT("(qemu_ld_beuw(env|0, u0|0, %u, %u) | 0) & 65535;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_beuw(env|0, r%d|0, %u, %u) | 0) & 65535;\n", reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_BESW:
-                OUT("(qemu_ld_beuw(env|0, u0|0, %u, %u) | 0) << 16 >> 16;\n", oi, (unsigned int)tb_ptr);
+                OUT("(qemu_ld_beuw(env|0, r%d|0, %u, %u) | 0) << 16 >> 16;\n", reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_BEUL:
-                OUT("qemu_ld_beul(env|0, u0|0, %u, %u)|0;\n", oi, (unsigned int)tb_ptr);
+                OUT("qemu_ld_beul(env|0, r%d|0, %u, %u)|0;\n", reg0, oi, (unsigned int)tb_ptr);
                 break;
             default:
                 tcg_abort();
@@ -815,25 +792,25 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             }
 */            break;
         case INDEX_op_qemu_st_i32:
-            OUT("    u0 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
-            OUT("    u1 = "); tci_gen_ri(&tb_ptr); OUT(";\n");
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
             oi = tci_read_i(&tb_ptr);
             BEFORE_CALL;
             switch (get_memop(oi) & (MO_BSWAP | MO_SIZE)) {
             case MO_UB:
-                OUT("    qemu_st_b(env|0, u1|0, (u0 & 255)|0, %u, %u);\n", oi, (unsigned int)tb_ptr);
+                OUT("    qemu_st_b(env|0, r%d|0, (r%d & 255)|0, %u, %u);\n", reg1, reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_LEUW:
-                OUT("    qemu_st_lew(env|0, u1|0, (u0 & 65535)|0, %u, %u);\n", oi, (unsigned int)tb_ptr);
+                OUT("    qemu_st_lew(env|0, r%d|0, (r%d & 65535)|0, %u, %u);\n", reg1, reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_LEUL:
-                OUT("    qemu_st_lel(env|0, u1|0, u0|0, %u, %u);\n", oi, (unsigned int)tb_ptr);
+                OUT("    qemu_st_lel(env|0, r%d|0, r%d|0, %u, %u);\n", reg1, reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_BEUW:
-                OUT("    qemu_st_bew(env|0, u1|0, (u0 & 65535)|0, %u, %u);\n", oi, (unsigned int)tb_ptr);
+                OUT("    qemu_st_bew(env|0, r%d|0, (r%d & 65535)|0, %u, %u);\n", reg1, reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_BEUL:
-                OUT("    qemu_st_bel(env|0, u1|0, u0|0, %u, %u);\n", oi, (unsigned int)tb_ptr);
+                OUT("    qemu_st_bel(env|0, r%d|0, r%d|0, %u, %u);\n", reg1, reg0, oi, (unsigned int)tb_ptr);
                 break;
             default:
                 tcg_abort();
