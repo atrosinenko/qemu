@@ -99,6 +99,10 @@ static void coroutine_delete(Coroutine *co)
     qemu_coroutine_delete(co);
 }
 
+#ifdef __EMSCRIPTEN__
+CoroutineAction qemu_sync_coroutine_enter(Coroutine *from_, Coroutine *to_);
+#endif
+
 void qemu_coroutine_enter(Coroutine *co, void *opaque)
 {
     Coroutine *self = qemu_coroutine_self();
@@ -113,7 +117,12 @@ void qemu_coroutine_enter(Coroutine *co, void *opaque)
 
     co->caller = self;
     co->entry_arg = opaque;
+
+#ifdef __EMSCRIPTEN__
+    ret = qemu_sync_coroutine_enter(self, co);
+#else
     ret = qemu_coroutine_switch(self, co, COROUTINE_ENTER);
+#endif
 
     qemu_co_queue_run_restart(co);
 

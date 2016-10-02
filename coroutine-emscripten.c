@@ -24,28 +24,38 @@ Coroutine *qemu_coroutine_new(void) {
 
 void qemu_coroutine_delete(Coroutine *co) {
 //    fprintf(stderr, "%s %p\n", __FUNCTION__, co);
-    g_free(co);
+
+//    Use coroutine pool!
+//    g_free(co);
+}
+
+CoroutineAction qemu_sync_coroutine_enter(Coroutine *from_, Coroutine *to_)
+{
+    struct CoroutineEmscripten *to = DO_UPCAST(struct CoroutineEmscripten, base, to_);
+    current = to_;
+    if(!to->cr)
+        to->cr = emscripten_coroutine_create(to_->entry, to_->entry_arg, 0);
+    if(emscripten_coroutine_next(to->cr))
+    {
+//        fprintf(stderr, "Yielded %p | %p\n", to, to->cr);
+        if(current != from_)
+            abort();
+        return COROUTINE_YIELD;
+    }
+    else
+    {
+        to->cr = 0;
+        return COROUTINE_TERMINATE;
+    }
 }
 
 CoroutineAction qemu_coroutine_switch(Coroutine *from_, Coroutine *to_,
                                       CoroutineAction action) {
-    struct CoroutineEmscripten *to = DO_UPCAST(struct CoroutineEmscripten, base, to_);
 //    fprintf(stderr, "%s %s %p %p | %p %p\n", __FUNCTION__, action == COROUTINE_ENTER ? "enter" : "yield", from_, to_, to_->entry, to->cr);
     current = to_;
     switch(action) {
         case COROUTINE_ENTER:
-            if(!to->cr)
-                to->cr = emscripten_coroutine_create(to_->entry, to_->entry_arg, 0);
-            if(emscripten_coroutine_next(to->cr)) {
-//                fprintf(stderr, "Yielded %p | %p\n", to, to->cr);
-                if(current != from_)
-                    abort();
-                return COROUTINE_YIELD;
-            }
-            else {
-                to->cr = 0;
-                return COROUTINE_TERMINATE;
-            }
+            return qemu_sync_coroutine_enter(from_, to_);
             break;
         case COROUTINE_YIELD:
             emscripten_yield();
