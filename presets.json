@@ -1,0 +1,29 @@
+{
+  "i386": {
+    "name": "x86",
+    "args": ["-net", "none", "-serial", "none", "-monitor", "none", "-parallel", "none"],
+    "variants": {
+      "Kolibri OS": {
+        "fda": "downloaded/kolibri.raw"
+      },
+      "FreeDOS": {
+        "cdrom": "downloaded/fd11src.iso",
+        "hda": "temp/64hdd.raw"
+      },
+      "OpenWRT x86": {
+        "kernel": "downloaded/openwrt-x86-vmlinuz",
+        "cdrom": "downloaded/openwrt-x86-rootfs",
+        "append": "root=0b00"
+      }
+    }
+  },
+  "mips": {
+    "name": "MIPS",
+    "args": ["-net", "none", "-vga", "none", "-monitor", "none", "-parallel", "none"],
+    "variants": {
+      "OpenWRT": {
+        "kernel": "downloaded/openwrt-mips.elf"
+      }
+    }
+  }
+}

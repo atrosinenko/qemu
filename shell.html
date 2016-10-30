@@ -1215,20 +1215,86 @@
       <progress value="0" max="100" id="progress" hidden=1></progress>
     </div>
 
-    
+  <div id="startup" style="margin:auto;max-width:500px">
+    Are you sure to download Qemu.js (about 30-40 Mb uncompressed)? <br/>
+    Guest architecture: <select id="arch"></select> <br/>
+    Memory size allocated for Qemu in MB: <input type="number" id="memSize" value="450"> <br/>
+    <input type="button" onclick="javascript:downloadQemu();" value="Download">
+  </div>
+
+  <div id="configuration" style="visibility:hidden">
+    <table style="margin:auto">
+      <tr>
+        <td>Memory MB</td>
+        <td><input type="number" id="qemu_m" value="128"></td>
+      </tr>
+      <tr>
+        <td>Preset</td>
+        <td><select id="preset" onchange="javascript:presetChanged();"></select></td>
+      </tr>
+      <tr>
+        <td>Kernel</td>
+        <td><input type="text" id="qemu_kernel" oninput="javascript:validateImage('kernel', false);"></td>
+        <td id="qemu_kernel_comment"></td>
+      </tr>
+      <tr>
+        <td>Initrd</td>
+        <td><input type="text" id="qemu_initrd" oninput="javascript:validateImage('initrd', false);"></td>
+        <td id="qemu_initrd_comment"></td>
+      </tr>
+      <tr>
+        <td>Command line</td>
+        <td><input type="text" id="qemu_append"></td>
+        <td id="qemu_append_comment"></td>
+      </tr>
+      <tr>
+        <td>Floppy</td>
+        <td><input type="text" id="qemu_fda" oninput="javascript:validateImage('fda', true);"></td>
+        <td id="qemu_fda_comment"></td>
+      </tr>
+      <tr>
+        <td>HDD</td>
+        <td><input type="text" id="qemu_hda" oninput="javascript:validateImage('hda', true);"></td>
+        <td id="qemu_hda_comment"></td>
+      </tr>
+      <tr>
+        <td>CD-ROM</td>
+        <td><input type="text" id="qemu_cdrom" oninput="javascript:validateImage('cdrom', true);"></td>
+        <td id="qemu_cdrom_comment"></td>
+      </tr>
+      <tr>
+        <td>Misc options</td>
+        <td><input type="text" id="qemu_misc"></td>
+      </tr>
+      <tr>
+        <td colspan="2"><input type="button" onclick="javascript:runQemu();" value="Run"></td>
+      </tr>
+    </table>
+  </div>
+
+  <div id="main_controls" style="visibility:hidden">
     <div class="emscripten_border">
       <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
       <div id="qemu_stats">
         Some stats
       </div>
     </div>
-    <textarea id="output" rows="8"></textarea>
+  </div>
+    <!-- <textarea id="output" rows="8"></textarea> -->
 
     <script type='text/javascript'>
       var statusElement = document.getElementById('status');
       var progressElement = document.getElementById('progress');
       var spinnerElement = document.getElementById('spinner');
       var qemuStatsElement = document.getElementById('qemu_stats');
+      var startupElement = document.getElementById('startup');
+      var configurationElement = document.getElementById('configuration');
+      var archElement = document.getElementById('arch');
+      var mainControlsElement = document.getElementById('main_controls');
+      var memSizeElement = document.getElementById('memSize');
+      var presetElement = document.getElementById('preset');
+      var qemu_m_element = document.getElementById('qemu_m');
+      var qemuMiscOptionsElement = document.getElementById('qemu_misc');
 
       var Module = {
         preRun: [],
@@ -1309,7 +1375,232 @@
           if (text) Module.printErr('[post-exception status] ' + text);
         };
       };
+
+      function setDownloading(downloading) {
+        Module.setStatus(downloading ? 'Downloading...' : '');
+        spinnerElement.style.display = downloading ? 'inline-block' : 'none';
+      }
+
+      (function() {
+        var xhr = new XMLHttpRequest();
+        xhr.onload = function(event) {
+          presets = xhr.response;
+          for(var key in presets) {
+            var newOption = document.createElement("option");
+            newOption.value = key;
+            newOption.text = presets[key].name;
+            archElement.options.add(newOption);
+          }
+        };
+        xhr.open("GET", "presets.json");
+        xhr.responseType = 'json';
+        xhr.send(null);
+      })();
+
+      var SPECIAL_FILE = 0;
+      var RAW_TEXT = 1;
+      var qemu_args = {
+        'kernel': SPECIAL_FILE,
+        'initrd': SPECIAL_FILE,
+        'append': RAW_TEXT,
+        'fda':    'if=floppy,index=0',
+        'hda':    'if=ide,index=0,media=disk',
+        'cdrom':  'if=ide,index=1,media=cdrom',
+        'misc': null
+      };
+
+      function presetChanged() {
+        var p = presets[archElement.value].variants[presetElement.value];
+        for(k in qemu_args) {
+          var inputField = document.getElementById('qemu_' + k);
+          inputField.value = p[k] || "";
+          if(qemu_args[k] !== RAW_TEXT && qemu_args[k] !== null)
+            inputField.oninput();
+        }
+      }
+
+      function downloadQemu() {
+        var arch = archElement.value;
+        startupElement.style.display = 'none';
+        Module['TOTAL_MEMORY'] = (memSizeElement.value|0) * 1024 * 1024;
+        for(var key in presets[arch].variants) {
+          var newOption = document.createElement("option");
+          newOption.text = key;
+          presetElement.options.add(newOption);
+        }
+        presetChanged();
+
+        load_runtime(arch);
+      }
+
+      function load_runtime(arch) {
+        setDownloading(true);
+        (function() {
+            var memoryInitializer = 'qemu-system-' + arch + '.html.mem';
+            if (typeof Module['locateFile'] === 'function') {
+              memoryInitializer = Module['locateFile'](memoryInitializer);
+            } else if (Module['memoryInitializerPrefixURL']) {
+              memoryInitializer = Module['memoryInitializerPrefixURL'] + memoryInitializer;
+            }
+            var xhr = Module['memoryInitializerRequest'] = new XMLHttpRequest();
+            xhr.open('GET', memoryInitializer, true);
+            xhr.responseType = 'arraybuffer';
+            xhr.send(null);
+        })();
+
+        Module['onRuntimeInitialized'] = function() {
+          configurationElement.style.visibility = 'visible';
+        }
+
+        var script = document.createElement('script');
+        script.src = "qemu-system-" + arch + ".js";
+        document.body.appendChild(script);
+      }
+
+      function fileForDownload(str) {
+        if(str.startsWith('downloaded/'))
+          return str.substr(11);
+        else
+          return null;
+      }
+
+      function allocationSize(str) {
+        if(str.startsWith('temp/'))
+          return parseInt(str.substr(5))|0;
+        else
+          return null;
+      }
+
+      function isRawImage(name) {
+        return name.endsWith(".raw");
+      }
+
+      function validateImage(key, block_device) {
+        var value = document.getElementById('qemu_' + key).value;
+        var commentElement = document.getElementById('qemu_' + key + '_comment');
+        var download = fileForDownload(value);
+        var allocSize = allocationSize(value);
+        if(!block_device)
+          var fmt = "";
+        else if(isRawImage(value))
+          var fmt = ", fmt: raw";
+        else
+          var fmt = ", fmt: guess";
+        if(download !== null) {
+          commentElement.innerHTML = 'Will download ' + download + ' on run' + fmt;
+        } else if(allocSize !== null && block_device) {
+          commentElement.innerHTML = 'Will allocate ' + allocSize + 'Mb on run' + fmt;
+        } else if(value == '') {
+          commentElement.innerHTML = '';
+        } else if(FS.analyzePath(value).exists) {
+          commentElement.innerHTML = 'Will use preloaded file' + fmt;
+        } else {
+          commentElement.innerHTML = '<b>File not found</b>';
+        }
+      }
+
+      function argument(key, drive_opts) {
+        var value = document.getElementById('qemu_' + key).value;
+        if(value == '') {
+          return [];
+        } else {
+          if(drive_opts === null)
+            return [];
+          if(drive_opts === SPECIAL_FILE || drive_opts === RAW_TEXT)
+            return ['-' + key, value];
+          if(isRawImage(value))
+            return ['-drive', drive_opts + ',format=raw,file=' + value];
+          else
+            return ['-drive', drive_opts + ',file=' + value];
+        }
+      }
+
+      function prepareFiles(keys, callback) {
+        var counter = 1;
+        function createFile(name, contents) {
+          name = "//" + name;
+          var ind = name.lastIndexOf('/');
+          FS.createPath(
+            '/',
+            name.substr(0, ind),
+            true,
+            true);
+          FS.createPreloadedFile(
+            name.substr(0, ind),
+            name.substr(ind + 1),
+            contents,
+            true, true,
+            function() {
+              counter -= 1;
+              if(counter <= 0)
+                setTimeout(callback, 0);
+            },
+            function() {},
+            false, false,
+            function() {});
+        }
+        for(var k_ in keys) {
+          if(keys[k_] === RAW_TEXT || keys[k_] === null)
+            continue;
+          (function(k) {
+            var value = document.getElementById('qemu_' + k).value;
+            var output = document.getElementById('qemu_' + k + '_comment');
+            var download = fileForDownload(value);
+            var allocSize = allocationSize(value);
+            if(download !== null) {
+              var xhr = new XMLHttpRequest();
+              counter += 1;
+              xhr.onprogress = function(event) {
+                if(event.lengthComputable) {
+                  output.innerHTML = "Downloading: " + ((100 * event.loaded / event.total) | 0) + '%';
+                }
+              };
+              xhr.onerror = function(event) {
+                output.innerHTML = "<b>Download failed</b>";
+              };
+              xhr.onload = function(event) {
+                var arrayBuffer = xhr.response;
+                if(arrayBuffer && xhr.status == 200) {
+                  output.innerHTML = "Download compelted";
+                  createFile(value, new Uint8Array(arrayBuffer));
+                } else {
+                  output.innerHTML = "Error " + xhr.status;
+                }
+              };
+              xhr.open("GET", download, true);
+              xhr.responseType = "arraybuffer";
+              xhr.send(null);
+            }
+            if(allocSize !== null) {
+              counter += 1;
+              createFile(value, new Uint8Array(allocSize * 1024 * 1024));
+            }
+          }) (k_);
+        }
+        counter -= 1;
+        if(counter <= 0)
+          callback();
+      }
+
+      function runQemu() {
+        mainControlsElement.style.visibility = 'visible';
+        var args = presets[archElement.value].args.concat(['-m', qemu_m_element.value]);
+        for(k in qemu_args) {
+          args = args.concat(argument(k, qemu_args[k]))
+        }
+        args = args.concat(qemuMiscOptionsElement.value.split(" ").filter(function(str) { return str != ""; }))
+        prepareFiles(
+          qemu_args,
+          function() {
+            configurationElement.style.display = 'none';
+            Module.callMain(args);
+          });
+      }
+
+      setDownloading(false);
     </script>
+    <!--
     {{{ SCRIPT }}}
+    -->
   </body>
 </html>
