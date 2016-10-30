@@ -67,6 +67,8 @@ static struct sdl2_console *get_scon_from_window(uint32_t window_id)
     return NULL;
 }
 
+static int window_ind = 0;
+
 void sdl2_window_create(struct sdl2_console *scon)
 {
     int flags = 0;
@@ -85,12 +87,20 @@ void sdl2_window_create(struct sdl2_console *scon)
         flags |= SDL_WINDOW_HIDDEN;
     }
 
-    scon->real_window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED,
-                                         SDL_WINDOWPOS_UNDEFINED,
-                                         surface_width(scon->surface),
-                                         surface_height(scon->surface),
-                                         flags);
-    scon->real_renderer = SDL_CreateRenderer(scon->real_window, -1, 0);
+    if(window_ind == 0) {
+        scon->real_window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED,
+                                             SDL_WINDOWPOS_UNDEFINED,
+                                             surface_width(scon->surface),
+                                             surface_height(scon->surface),
+                                             flags);
+        scon->real_renderer = SDL_CreateRenderer(scon->real_window, -1, 0);
+    }
+    else
+    {
+        scon->real_window = NULL;
+        scon->real_renderer = NULL;
+    }
+    window_ind += 1;
     if (scon->opengl) {
         scon->winctx = SDL_GL_GetCurrentContext();
     }
@@ -769,9 +779,9 @@ void sdl_display_init(DisplayState *ds, int full_screen, int no_frame)
     sdl2_console = g_new0(struct sdl2_console, sdl2_num_outputs);
     for (i = 0; i < sdl2_num_outputs; i++) {
         QemuConsole *con = qemu_console_lookup_by_index(i);
-        if (!qemu_console_is_graphic(con)) {
-            sdl2_console[i].hidden = true;
-        }
+//        if (!qemu_console_is_graphic(con)) {
+//            sdl2_console[i].hidden = true;
+//        }
         sdl2_console[i].idx = i;
 #ifdef CONFIG_OPENGL
         sdl2_console[i].opengl = display_opengl;
