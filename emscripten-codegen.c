@@ -39,11 +39,15 @@ void init_emscripten_codegen()
             qemu_ld_leul: Module._helper_le_ldul_mmu,
             qemu_ld_beuw: Module._helper_be_lduw_mmu,
             qemu_ld_beul: Module._helper_be_ldul_mmu,
+            qemu_ld_beq: Module._helper_be_ldq_mmu,
+            qemu_ld_leq: Module._helper_le_ldq_mmu,
             qemu_st_b: Module._helper_ret_stb_mmu,
             qemu_st_lew: Module._helper_le_stw_mmu,
             qemu_st_lel: Module._helper_le_stl_mmu,
             qemu_st_bew: Module._helper_be_stw_mmu,
-            qemu_st_bel: Module._helper_be_stl_mmu
+            qemu_st_bel: Module._helper_be_stl_mmu,
+            qemu_st_leq: Module._helper_le_stq_mmu,
+            qemu_st_beq: Module._helper_be_stq_mmu
         };
     });
 #endif
@@ -293,11 +297,15 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
     OUT("var qemu_ld_leul = ffi.qemu_ld_leul;\n");
     OUT("var qemu_ld_beuw = ffi.qemu_ld_beuw;\n");
     OUT("var qemu_ld_beul = ffi.qemu_ld_beul;\n");
+    OUT("var qemu_ld_beq = ffi.qemu_ld_beq;\n");
+    OUT("var qemu_ld_leq = ffi.qemu_ld_leq;\n");
     OUT("var qemu_st_b = ffi.qemu_st_b;\n");
     OUT("var qemu_st_lew = ffi.qemu_st_lew;\n");
     OUT("var qemu_st_lel = ffi.qemu_st_lel;\n");
     OUT("var qemu_st_bew = ffi.qemu_st_bew;\n");
     OUT("var qemu_st_bel = ffi.qemu_st_bel;\n");
+    OUT("var qemu_st_leq = ffi.qemu_st_leq;\n");
+    OUT("var qemu_st_beq = ffi.qemu_st_beq;\n");
 
     OUT("\n");
     OUT("function tb_fun(tb_ptr, env, sp_value, depth) {\n");
@@ -739,58 +747,63 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             AFTER_CALL;
             break;
         case INDEX_op_qemu_ld_i64:
-            TODO();
-/*            t0 = *tb_ptr++;
-            if (TCG_TARGET_REG_BITS == 32) {
-                t1 = *tb_ptr++;
-            }
-            taddr = tci_read_ulong(&tb_ptr);
+            t0 = *tb_ptr++;
+            t1 = *tb_ptr++;
+            reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
             oi = tci_read_i(&tb_ptr);
             switch (get_memop(oi) & (MO_BSWAP | MO_SSIZE)) {
             case MO_UB:
-                tmp64 = qemu_ld_ub;
+                WR_REG32(t0); OUT("(qemu_ld_ub(env|0, r%d|0, %u, %u) | 0) & 255;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("0;\n");
                 break;
             case MO_SB:
-                tmp64 = (int8_t)qemu_ld_ub;
+                WR_REG32(t0); OUT("(qemu_ld_ub(env|0, r%d|0, %u, %u) | 0) << 24 >> 24;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("r%d>>31;\n", t0);
                 break;
             case MO_LEUW:
-                tmp64 = qemu_ld_leuw;
+                WR_REG32(t0); OUT("(qemu_ld_leuw(env|0, r%d|0, %u, %u) | 0) & 65535;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("0;\n");
                 break;
             case MO_LESW:
-                tmp64 = (int16_t)qemu_ld_leuw;
+                WR_REG32(t0); OUT("(qemu_ld_leuw(env|0, r%d|0, %u, %u) | 0) << 16 >> 16;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("r%d>>31;\n", t0);
                 break;
             case MO_LEUL:
-                tmp64 = qemu_ld_leul;
+                WR_REG32(t0); OUT("qemu_ld_leul(env|0, r%d|0, %u, %u)|0;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("0;\n");
                 break;
             case MO_LESL:
-                tmp64 = (int32_t)qemu_ld_leul;
+                WR_REG32(t0); OUT("qemu_ld_leul(env|0, r%d|0, %u, %u)|0;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("r%d>>31;\n", t0);
                 break;
             case MO_LEQ:
-                tmp64 = qemu_ld_leq;
+                WR_REG32(t0); OUT("qemu_ld_leq(env|0, r%d|0, %u, %u)|0;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("getTempRet0()|0;\n");
                 break;
             case MO_BEUW:
-                tmp64 = qemu_ld_beuw;
+                WR_REG32(t0); OUT("(qemu_ld_beuw(env|0, r%d|0, %u, %u) | 0) & 65535;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("0;\n");
                 break;
             case MO_BESW:
-                tmp64 = (int16_t)qemu_ld_beuw;
+                WR_REG32(t0); OUT("(qemu_ld_beuw(env|0, r%d|0, %u, %u) | 0) << 16 >> 16;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("r%d>>31;\n", t0);
                 break;
             case MO_BEUL:
-                tmp64 = qemu_ld_beul;
+                WR_REG32(t0); OUT("qemu_ld_beul(env|0, r%d|0, %u, %u)|0;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("0;\n");
                 break;
             case MO_BESL:
-                tmp64 = (int32_t)qemu_ld_beul;
+                WR_REG32(t0); OUT("qemu_ld_beul(env|0, r%d|0, %u, %u)|0;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("r%d>>31;\n", t0);
                 break;
             case MO_BEQ:
-                tmp64 = qemu_ld_beq;
+                WR_REG32(t0); OUT("qemu_ld_beq(env|0, r%d|0, %u, %u)|0;\n", reg0, oi, (unsigned int)tb_ptr);
+                WR_REG32(t1); OUT("getTempRet0()|0;\n");
                 break;
             default:
                 tcg_abort();
             }
-            tci_write_reg(t0, tmp64);
-            if (TCG_TARGET_REG_BITS == 32) {
-                tci_write_reg(t1, tmp64 >> 32);
-            }
-*/            break;
+            break;
         case INDEX_op_qemu_st_i32:
             reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
             reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
@@ -818,37 +831,37 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             AFTER_CALL;
             break;
         case INDEX_op_qemu_st_i64:
-            TODO();
-/*            tmp64 = tci_read_r64(&tb_ptr);
-            taddr = tci_read_ulong(&tb_ptr);
+            /*tmp64 low*/  reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
+            /*tmp64 high*/ reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
+            /*taddr*/ reg2 = tci_load_ri(&tb_ptr, CONST2, &loaded);
             oi = tci_read_i(&tb_ptr);
             switch (get_memop(oi) & (MO_BSWAP | MO_SIZE)) {
             case MO_UB:
-                qemu_st_b(tmp64);
+                OUT("    qemu_st_b(env|0, r%d|0, (r%d & 255)|0, %u, %u);\n", reg2, reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_LEUW:
-                qemu_st_lew(tmp64);
+                OUT("    qemu_st_lew(env|0, r%d|0, (r%d & 65535)|0, %u, %u);\n", reg2, reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_LEUL:
-                qemu_st_lel(tmp64);
+                OUT("    qemu_st_lel(env|0, r%d|0, r%d|0, %u, %u);\n", reg2, reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_LEQ:
-                qemu_st_leq(tmp64);
+                OUT("    qemu_st_leq(env|0, r%d|0, r%d|0, r%d|0, %u, %u);\n", reg2, reg0, reg1, oi, (unsigned int)tb_ptr);
                 break;
             case MO_BEUW:
-                qemu_st_bew(tmp64);
+                OUT("    qemu_st_bew(env|0, r%d|0, (r%d & 65535)|0, %u, %u);\n", reg2, reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_BEUL:
-                qemu_st_bel(tmp64);
+                OUT("    qemu_st_bel(env|0, r%d|0, r%d|0, %u, %u);\n", reg2, reg0, oi, (unsigned int)tb_ptr);
                 break;
             case MO_BEQ:
-                qemu_st_beq(tmp64);
+                OUT("    qemu_st_beq(env|0, r%d|0, r%d|0, r%d|0, %u, %u);\n", reg2, reg0, reg1, oi, (unsigned int)tb_ptr);
                 break;
             default:
                 tcg_abort();
             }
             break;
-*/        default:
+        default:
             TODO();
             break;
         }
