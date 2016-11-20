@@ -1206,7 +1206,7 @@
 <span id='controls'>
   <span><input type="checkbox" id="resize">Resize canvas</span>
   <span><input type="checkbox" id="pointerLock" checked>Lock/hide mouse pointer &nbsp;&nbsp;&nbsp;</span>
-  <span><input type="button" value="Fullscreen" onclick="Module.requestFullScreen(document.getElementById('pointerLock').checked, 
+  <span><input type="button" style="display:none" value="Fullscreen" onclick="Module.requestFullScreen(document.getElementById('pointerLock').checked, 
                                                                             document.getElementById('resize').checked)">
   </span>
 </span>
@@ -1216,7 +1216,7 @@
     </div>
 
   <div id="startup" style="margin:auto;max-width:500px">
-    Are you sure to download Qemu.js (about 30-40 Mb uncompressed)? <br/>
+    Are you sure to download Qemu.js (about <b>30-40 Mb</b> uncompressed)? Please note that <b>browser may freeze!</b><br/>
     Guest architecture: <select id="arch"></select> <br/>
     Memory size allocated for Qemu in MB: <input type="number" id="memSize" value="450"> <br/>
     <input type="button" onclick="javascript:downloadQemu();" value="Download">
@@ -1231,6 +1231,10 @@
       <tr>
         <td>Preset</td>
         <td><select id="preset" onchange="javascript:presetChanged();"></select></td>
+      </tr>
+      <tr>
+        <td>Description</td>
+        <td id="preset_description" colspan="2"></td>
       </tr>
       <tr>
         <td>Kernel</td>
@@ -1277,10 +1281,26 @@
       <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
       <div id="qemu_stats">
         Some stats
-      </div>
+      </div> <br/> <br/> <br/>
+      Compile TB after <select id="tbCompileThreshold">
+        <option>0</option>
+        <option>10</option>
+        <option selected="true">100</option>
+        <option>1000</option>
+        <option>1e10</option>
+      </select> executions.<br/>
+      Print next <select id="printNextCompiledTBs">
+        <option selected="true">0</option>
+        <option>1</option>
+        <option>10</option>
+        <option>100</option>
+      </select> compiled TBs.<br/>
+      <input type="button" onclick="javascript:applyCompilerSettings()" value="Apply">
+      <input type="button" onclick="javascript:resetCompilerCache()" value="Reset TB cache">
     </div>
   </div>
-    <!-- <textarea id="output" rows="8"></textarea> -->
+  <div>Sources see at <a href="https://github.com/atrosinenko">https://github.com/atrosinenko</a></div>
+    <textarea id="output" rows="8" style="display:none"></textarea>
 
     <script type='text/javascript'>
       var statusElement = document.getElementById('status');
@@ -1295,6 +1315,7 @@
       var presetElement = document.getElementById('preset');
       var qemu_m_element = document.getElementById('qemu_m');
       var qemuMiscOptionsElement = document.getElementById('qemu_misc');
+      var presetDescriptionElement = document.getElementById('preset_description');
 
       var Module = {
         preRun: [],
@@ -1417,6 +1438,7 @@
           if(qemu_args[k] !== RAW_TEXT && qemu_args[k] !== null)
             inputField.oninput();
         }
+        presetDescriptionElement.textContent = p['description'];
       }
 
       function downloadQemu() {
@@ -1582,12 +1604,23 @@
           callback();
       }
 
+      function applyCompilerSettings() {
+        codegenThreshold = document.getElementById("tbCompileThreshold").value | 0;
+        tbPrintCount = document.getElementById("printNextCompiledTBs").value | 0;
+      }
+
+      function resetCompilerCache() {
+        CompiledTB = {};
+        TBCount = {};
+      }
+
       function runQemu() {
         mainControlsElement.style.visibility = 'visible';
         var args = presets[archElement.value].args.concat(['-m', qemu_m_element.value]);
         for(k in qemu_args) {
           args = args.concat(argument(k, qemu_args[k]))
         }
+        applyCompilerSettings();
         args = args.concat(qemuMiscOptionsElement.value.split(" ").filter(function(str) { return str != ""; }))
         prepareFiles(
           qemu_args,

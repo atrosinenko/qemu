@@ -83,8 +83,20 @@ static uint8_t *tb_try_execute(CPUArchState *env, int tb_key, uint8_t *tb_ptr, u
         }
         var tmp = TBCount[$1|0] | 0;
         TBCount[$1|0] = (tmp + 1) | 0;
-        return (tmp >= 100) ? 321 : 123;
-    }, env, tb_key, tb_ptr, sp_value);
+        return (tmp >= codegenThreshold) ? 321 : 123;
+    }, env, tb_ptr, tb_ptr, sp_value);
+}
+
+static int need_print_tb()
+{
+    return EM_ASM_INT_V({
+        if(tbPrintCount > 0) {
+            tbPrintCount -= 1;
+            return 1;
+        } else {
+            return 0;
+        }
+    });
 }
 
 void fast_invalidate_tb(int tb_ptr)
@@ -910,7 +922,10 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
     double t1 = get_time();
     translation_buf[0] = 0;
     codegen(env, start, length);
-//    fprintf(stderr, "Compiling %p:\n%s\n", tb_ptr, translation_buf);
+    if(need_print_tb())
+    {
+        fprintf(stderr, "Compiling %p:\n%s\n", tb_ptr, translation_buf);
+    }
     emscripten_run_script(translation_buf);
     compiler_time += get_time() - t1;
 
