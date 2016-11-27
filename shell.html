@@ -1217,12 +1217,13 @@
 
   <div id="startup" style="margin:auto;max-width:500px">
     Are you sure to download Qemu.js (about <b>30-40 Mb</b> uncompressed)? Please note that <b>browser may freeze!</b><br/>
+    <b>Work in progress.</b> Build instructions see <a href="https://github.com/atrosinenko/qemujs-builder">here</a>.<br/>
     Guest architecture: <select id="arch"></select> <br/>
-    Memory size allocated for Qemu in MB: <input type="number" id="memSize" value="450"> <br/>
+    Memory size allocated for Qemu in MB: <input type="number" id="memSize" value="256"> <br/>
     <input type="button" onclick="javascript:downloadQemu();" value="Download">
   </div>
 
-  <div id="configuration" style="visibility:hidden">
+  <div id="configuration" style="display:none">
     <table style="margin:auto">
       <tr>
         <td>Memory MB</td>
@@ -1276,7 +1277,7 @@
     </table>
   </div>
 
-  <div id="main_controls" style="visibility:hidden">
+  <div id="main_controls" style="display:none">
     <div class="emscripten_border">
       <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
       <div id="qemu_stats">
@@ -1299,7 +1300,6 @@
       <input type="button" onclick="javascript:resetCompilerCache()" value="Reset TB cache">
     </div>
   </div>
-  <div>Sources see at <a href="https://github.com/atrosinenko">https://github.com/atrosinenko</a></div>
     <textarea id="output" rows="8" style="display:none"></textarea>
 
     <script type='text/javascript'>
@@ -1471,7 +1471,7 @@
         })();
 
         Module['onRuntimeInitialized'] = function() {
-          configurationElement.style.visibility = 'visible';
+          configurationElement.style.display = 'block';
         }
 
         var script = document.createElement('script');
@@ -1615,7 +1615,6 @@
       }
 
       function runQemu() {
-        mainControlsElement.style.visibility = 'visible';
         var args = presets[archElement.value].args.concat(['-m', qemu_m_element.value]);
         for(k in qemu_args) {
           args = args.concat(argument(k, qemu_args[k]))
@@ -1625,6 +1624,7 @@
         prepareFiles(
           qemu_args,
           function() {
+            mainControlsElement.style.display = 'block';
             configurationElement.style.display = 'none';
             Module.callMain(args);
           });
