@@ -212,8 +212,6 @@ static void glib_pollfds_poll(void)
 
 #define MAX_MAIN_LOOP_SPIN (1000)
 
-void do_rcu_step();
-void do_cpu_step();
 #include <poll.h>
 static int os_host_main_loop_wait(int64_t timeout)
 {

@@ -230,8 +230,6 @@ static void add_pollfd(AioHandler *node)
     npfd++;
 }
 
-void process_pools();
-
 bool aio_poll(AioContext *ctx, bool blocking)
 {
     AioHandler *node;
