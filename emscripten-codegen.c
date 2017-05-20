@@ -763,6 +763,7 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             t1 = *tb_ptr++;
             reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
             oi = tci_read_i(&tb_ptr);
+            BEFORE_CALL;
             switch (get_memop(oi) & (MO_BSWAP | MO_SSIZE)) {
             case MO_UB:
                 WR_REG32(t0); OUT("(qemu_ld_ub(env|0, r%d|0, %u, %u) | 0) & 255;\n", reg0, oi, (unsigned int)tb_ptr);
@@ -815,6 +816,7 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             default:
                 tcg_abort();
             }
+            AFTER_CALL;
             break;
         case INDEX_op_qemu_st_i32:
             reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
@@ -847,6 +849,7 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             /*tmp64 high*/ reg1 = tci_load_ri(&tb_ptr, CONST1, &loaded);
             /*taddr*/ reg2 = tci_load_ri(&tb_ptr, CONST2, &loaded);
             oi = tci_read_i(&tb_ptr);
+            BEFORE_CALL;
             switch (get_memop(oi) & (MO_BSWAP | MO_SIZE)) {
             case MO_UB:
                 OUT("    qemu_st_b(env|0, r%d|0, (r%d & 255)|0, %u, %u);\n", reg2, reg0, oi, (unsigned int)tb_ptr);
@@ -872,6 +875,7 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             default:
                 tcg_abort();
             }
+            AFTER_CALL;
             break;
         default:
             TODO();
