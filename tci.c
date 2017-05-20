@@ -467,17 +467,18 @@ static bool tci_compare64(uint64_t u0, uint64_t u1, TCGCond condition)
 
 /* Interpret pseudo code in tb. */
 #ifdef __EMSCRIPTEN__
-uintptr_t tcg_qemu_tb_exec_real(CPUArchState *env, uint8_t *tb_ptr)
+uintptr_t tcg_qemu_tb_exec_real(CPUArchState *env, uint8_t *tb_ptr, const uintptr_t sp_value)
+{
 #else
 uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
-#endif
 {
     long tcg_temps[CPU_TEMP_BUF_NLONGS];
     uintptr_t sp_value = (uintptr_t)(tcg_temps + CPU_TEMP_BUF_NLONGS);
-    uintptr_t next_tb = 0;
-
     tci_reg[TCG_AREG0] = (tcg_target_ulong)env;
     tci_reg[TCG_REG_CALL_STACK] = sp_value;
+#endif
+    uintptr_t next_tb = 0;
+
     assert(tb_ptr);
 
     for (;;) {

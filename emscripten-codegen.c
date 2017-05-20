@@ -25,13 +25,6 @@ void init_emscripten_codegen()
             _i64Subtract: Module._i64Subtract,
             _mul_unsigned_long_long: Module._mul_unsigned_long_long,
             Math_imul: Math.imul,
-            execute_if_compiled: function(tb_ptr, env, sp_value, depth) {
-                var fun = CompiledTB[tb_ptr|0];
-                if((depth|0) < 10 && fun != undefined && fun != null)
-                    return fun(tb_ptr|0, env|0, sp_value|0, ((depth|0) + 1)|0)|0;
-                else
-                    return -(tb_ptr|0);
-            },
             getThrew: function() { return asm.__THREW__|0; },
             abort: function() { throw "abort"; },
             qemu_ld_ub: Module._helper_ret_ldub_mmu,
@@ -74,17 +67,17 @@ static double get_time()
 
 // TODO clean up unused compiled functions, invalidate when required
 
-static uint8_t *tb_try_execute(CPUArchState *env, int tb_key, uint8_t *tb_ptr, uintptr_t sp_value)
+static uint8_t *tb_try_execute(uint8_t *tb_ptr)
 {
     return (uint8_t *) EM_ASM_INT({
-        var fun = CompiledTB[$1|0];
-        if((fun !== undefined) && (fun != null)) {
-            return fun($2|0, $0|0, $3|0, 0)|0;
+        var fun = CompiledTB[$0|0];
+        if((fun !== undefined) && (fun !== null)) {
+            return fun()|0;
         }
-        var tmp = TBCount[$1|0] | 0;
-        TBCount[$1|0] = (tmp + 1) | 0;
+        var tmp = TBCount[$0|0] | 0;
+        TBCount[$0|0] = (tmp + 1) | 0;
         return (tmp >= codegenThreshold) ? 321 : 123;
-    }, env, tb_ptr, tb_ptr, sp_value);
+    }, tb_ptr);
 }
 
 static int need_print_tb()
@@ -301,7 +294,6 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
     OUT("var _i64Subtract = ffi._i64Subtract;\n");
     OUT("var Math_imul = ffi.Math_imul;\n");
     OUT("var _mul_unsigned_long_long = ffi._mul_unsigned_long_long;\n");
-    OUT("var execute_if_compiled = ffi.execute_if_compiled;\n");
     OUT("var getThrew = ffi.getThrew;\n");
     OUT("var abort = ffi.abort;\n");
     OUT("var qemu_ld_ub = ffi.qemu_ld_ub;\n");
@@ -320,27 +312,24 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
     OUT("var qemu_st_beq = ffi.qemu_st_beq;\n");
 
     OUT("\n");
-    OUT("function tb_fun(tb_ptr, env, sp_value, depth) {\n");
-    OUT("  tb_ptr = tb_ptr|0;\n");
-    OUT("  env = env|0;\n");
-    OUT("  sp_value = sp_value|0;\n");
-    OUT("  depth = depth|0;\n");
+    OUT("function tb_fun() {\n");
     OUT("  var u0 = 0, u1 = 0, u2 = 0, u3 = 0, result = 0;\n");
     OUT("  var r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;\n");
     OUT("  var r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0;\n");
     OUT("  var r20 = 0, r21 = 0, r22 = 0, r23 = 0, r24 = 0, r25 = 0, r26 = 0, r27 = 0, r28 = 0, r29 = 0;\n");
     OUT("  var r30 = 0, r31 = 0, r41 = 0, r42 = 0, r43 = 0, r44 = 0;\n");
+    OUT("  var env = 0;\n");
 
     int loaded = 0;
     int dirty = 0;
-    WR_REG32(TCG_AREG0); OUT("env|0;\n");
-    WR_REG32(TCG_REG_CALL_STACK); OUT("sp_value|0;\n");
+    load_reg(TCG_AREG0, &loaded);
+    OUT("  env = r%d|0;\n", TCG_AREG0);
 
     OUT("  START: do {\n");
     codegen_main(tb_ptr, tb_ptr + length, tb_ptr, 0, loaded, dirty);
     OUT("    break;\n");
     OUT("  } while(1); abort(); return 0|0;\n");
-    
+
     OUT("}\n");
     OUT("return {tb_fun: tb_fun};\n");
     OUT("}(window, CompilerFFI, Module.buffer)[\"tb_fun\"]\n");
@@ -350,19 +339,26 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
 {
     if(depth > 30)
         abort();
+    int first_insn = depth == 0;
     for(;;) {
         if(!tb_ptr) {
             fprintf(stderr, "tb_ptr == NULL\n");
-            OUT("abort();\n");
-            return;
+            abort();
         }
 
-        if(tb_ptr < tb_start || tb_ptr >= tb_end)
+        if(tb_ptr < tb_start || tb_ptr >= tb_end || (tb_ptr == tb_start && !first_insn))
         {
             write_dirty_regs(dirty);
-            OUT("    return execute_if_compiled(%u|0, env|0, sp_value|0, depth|0) | 0;\n", (unsigned int)tb_ptr);
+            OUT("    return %d;\n", -(int)tb_ptr);
             return;
         }
+        /*if(tb_ptr == tb_start && !first_insn)
+        {
+            write_dirty_regs(dirty);
+            OUT("    continue START;\n");
+            return;
+        }*/
+        first_insn = 0;
         TCGOpcode opc = tb_ptr[0];
 #if !defined(NDEBUG)
         uint8_t op_size = tb_ptr[1];
@@ -380,7 +376,6 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
         tb_ptr += 2;
         switch (opc) {
         case INDEX_op_call:
-            // TODO ASYNC
             for(int ind = 0; ind <= 10; ++ind)
                 if(ind != 4)
                     load_reg(ind, &loaded);
@@ -394,12 +389,6 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             label = tci_read_label(&tb_ptr);
             assert(tb_ptr == old_code_ptr + op_size);
             tb_ptr = (uint8_t *) label;
-            if(tb_ptr == tb_start)
-            {
-                write_dirty_regs(dirty);
-                OUT("    continue START;\n");
-                return;
-            }
             continue;
         case INDEX_op_setcond_i32:
             t0 = *tb_ptr++;
@@ -591,15 +580,8 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             label = tci_read_label(&tb_ptr);
             tci_compare32(condition, reg0, reg1);
             OUT("    if(result|0) {\n");
-            if(label == tb_start)
-            {
-                write_dirty_regs(dirty);
-                OUT("    continue START;\n");
-            }
-            else
-            {
-                codegen_main(tb_start, tb_end, (uint8_t *) label, depth + 1, loaded, dirty);
-            }
+            codegen_main(tb_start, tb_end, (uint8_t *) label, depth + 1, loaded, dirty);
+            OUT("    break;\n");
             OUT("    }\n");
             break;
         case INDEX_op_add2_i32:
@@ -712,22 +694,15 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             t0 = tci_read_i32(&tb_ptr);
             assert(tb_ptr == old_code_ptr + op_size);
             tb_ptr += (int32_t)t0;
-            if(tb_ptr == tb_start)
-            {
-                write_dirty_regs(dirty);
-                OUT("    continue START;\n");
-                return;
-            }
             continue;
         case INDEX_op_qemu_ld_i32:
             t0 = *tb_ptr++;
             reg0 = tci_load_ri(&tb_ptr, CONST0, &loaded);
             oi = tci_read_i(&tb_ptr);
             // TODO check width and signedness
-            
+
             BEFORE_CALL;
-            // note tb_ptr in JS is not always updated
-            WR_REG32(t0); 
+            WR_REG32(t0);
             switch (get_memop(oi) & (MO_BSWAP | MO_SSIZE)) {
             case MO_UB:
                 OUT("(qemu_ld_ub(env|0, r%d|0, %u, %u) | 0) & 255;\n", reg0, oi, (unsigned int)tb_ptr);
@@ -885,17 +860,24 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
     }
 }
 
-uintptr_t tcg_qemu_tb_exec_real(CPUArchState *env, uint8_t *tb_ptr);
+uintptr_t tcg_qemu_tb_exec_real(CPUArchState *env, uint8_t *tb_ptr, uintptr_t sp_value);
+
+static long tcg_temps[CPU_TEMP_BUF_NLONGS];
+static const uintptr_t sp_value = (uintptr_t)(tcg_temps + CPU_TEMP_BUF_NLONGS);
 
 uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
 {
-    long tcg_temps[CPU_TEMP_BUF_NLONGS];
-    uintptr_t sp_value = (uintptr_t)(tcg_temps + CPU_TEMP_BUF_NLONGS);
-    
 //    fprintf(stderr, "Exec: %08x\n", tb_ptr);
-    
+
+    if(tci_reg[TCG_REG_CALL_STACK] != sp_value) {
+        fprintf(stderr, "sp_value: %x %x\n", tci_reg[TCG_REG_CALL_STACK], sp_value);
+    }
+
+    tci_reg[TCG_AREG0] = (tcg_target_ulong)env;
+    tci_reg[TCG_REG_CALL_STACK] = sp_value;
+
     int start, length;
-    
+
     int res = -(int)tb_ptr;
     do {
         tb_ptr = -res;
@@ -904,7 +886,7 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
         if(tb_ptr != start)
             fprintf(stderr, "tb_ptr = %08x start = %08x\n", tb_ptr, start);
         tb_count += 1;
-        res = tb_try_execute(env, start, tb_ptr, sp_value);
+        res = tb_try_execute(tb_ptr);
         if(res != TB_INTERPRET)
             compiled_tb_count += 1;
     }
@@ -912,7 +894,7 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
 //    fprintf(stderr, "res = %d\n", res);
     if(res == TB_INTERPRET)
     {
-        res = tcg_qemu_tb_exec_real(env, tb_ptr);
+        res = tcg_qemu_tb_exec_real(env, tb_ptr, sp_value);
 //        fprintf(stderr, "Return: %08x\n", res);
         return res;
     }
@@ -934,8 +916,5 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
     compiler_time += get_time() - t1;
 
     return tcg_qemu_tb_exec(env, tb_ptr);
-//    uintptr_t r = tb_try_execute(env, start, tb_ptr, sp_value);
-//    fprintf(stderr, "Return: %08x\n", r);
-//    return r;
 }
 #endif
