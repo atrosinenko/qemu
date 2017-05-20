@@ -608,7 +608,7 @@ void process_pools(void);
 void update_qemu_stats(void);
 void init_emscripten_codegen(void);
 void on_tb_start(int tb_ptr);
-void on_tb_end(int tb_ptr);
+void on_tb_end(int tb_start, int tb_ptr);
 void invalidate_tb(int tb_ptr);
 void process_pools(void);
 void do_rcu_step(void);

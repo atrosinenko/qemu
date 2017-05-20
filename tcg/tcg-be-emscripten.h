@@ -1,5 +1,5 @@
 /*
- * TCG Backend Data: No backend data
+ * TCG Backend Data: Emscripten backend data
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,8 +21,7 @@
  */
 
 typedef struct TCGBackendData {
-    /* Empty */
-    char dummy;
+    int tb_start;
 } TCGBackendData;
 
 
@@ -32,6 +31,7 @@ typedef struct TCGBackendData {
 
 static inline void tcg_out_tb_init(TCGContext *s)
 {
+    s->be->tb_start = s->code_ptr;
     on_tb_start(s->code_ptr);
 }
 
@@ -41,5 +41,8 @@ static inline void tcg_out_tb_init(TCGContext *s)
 
 static inline void tcg_out_tb_finalize(TCGContext *s)
 {
-    on_tb_end(s->code_ptr);
+    if(s->be->tb_start != s->code_buf) {
+        fprintf(stderr, "!!!\n");
+    }
+    on_tb_end(s->be->tb_start, s->code_ptr);
 }

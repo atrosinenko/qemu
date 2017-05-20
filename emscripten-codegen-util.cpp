@@ -6,17 +6,15 @@
 extern "C" void invalidate_tb(int tb_ptr);
 extern "C" void fast_invalidate_tb(int tb_ptr);
 
-static int tb_start;
 static std::map<int, int> tb_length;
 
 extern "C" void invalidate_range(int start_, int end_);
 
 extern "C" void on_tb_start(int tb_ptr)
 {
-    tb_start = tb_ptr;
     invalidate_tb(tb_ptr);
 }
-extern "C" void on_tb_end(int tb_ptr)
+extern "C" void on_tb_end(int tb_start, int tb_ptr)
 {
     if(tb_length.lower_bound(tb_start) != tb_length.lower_bound(tb_ptr - 1))
         invalidate_range(tb_start, tb_ptr);
