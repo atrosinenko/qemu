@@ -55,7 +55,7 @@ void qemu_mutex_init(QemuMutex *mutex)
     mutex->locked = 0;
 #if 0
     int err;
-    
+
     err = pthread_mutex_init(&mutex->lock, NULL);
     if (err)
         error_exit(err, __func__);
@@ -521,7 +521,7 @@ void qemu_thread_create(QemuThread *thread, const char *name,
                        void *(*start_routine)(void*),
                        void *arg, int mode)
 {
-    fprintf(stderr, "Requested start of thread \"%s\".", name);
+    fprintf(stderr, "Requested start of thread \"%s\".\n", name);
     thread->start_routine = start_routine;
     thread->arg = arg;
     strncpy(thread->name, name, sizeof(thread->name));
