@@ -1378,7 +1378,7 @@
         setQemuStats: function(tb_per_sec, compiled_tb_percent, compiler_cpu) {
           qemuStatsElement.innerHTML = 
             "kTB/sec: " + tb_per_sec / 1000 + "<br/>" +
-            "Compiled TB: " + compiled_tb_percent + "%<br/>" +
+            "Compiled TB: " + compiled_tb_percent + "% (" + Object.keys(CompiledTB).length + ")<br/>" +
             "Compiler time: " + compiler_cpu + "%";
         },
         totalDependencies: 0,
@@ -1605,13 +1605,15 @@
       }
 
       function applyCompilerSettings() {
-        codegenThreshold = document.getElementById("tbCompileThreshold").value | 0;
-        tbPrintCount = document.getElementById("printNextCompiledTBs").value | 0;
+        var threshold = document.getElementById("tbCompileThreshold").value | 0;
+        var count = document.getElementById("printNextCompiledTBs").value | 0;
+        Module._update_compiler_settings(threshold, print);
       }
 
       function resetCompilerCache() {
-        CompiledTB = {};
-        TBCount = {};
+        for(k of Object.keys(CompiledTB)) {
+          Module._fast_invalidate_tb(k|0);
+        }
       }
 
       function runQemu() {

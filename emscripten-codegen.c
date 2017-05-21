@@ -46,9 +46,11 @@ void init_emscripten_codegen()
 #endif
 }
 
-int get_tb_start_and_length(int ptr, int *start, int *length);
+int get_tb_start_and_length(uint8_t *ptr, uint8_t **start, int *length);
 
 #ifdef __EMSCRIPTEN__
+
+static int compilation_threshold, tb_print_count;
 
 static int tb_count;
 static int compiled_tb_count;
@@ -62,46 +64,55 @@ static double get_time()
     return tv.tv_sec + ((double)tv.tv_usec) / 1e6;
 }
 
-#define TB_INTERPRET 123
-#define TB_COMPILE_PENDING 321
-
 // TODO clean up unused compiled functions, invalidate when required
 
-static uint8_t *tb_try_execute(uint8_t *tb_ptr)
+#define NORMAL_EXEC 0
+#define GET_TB_PTR  1
+
+static uintptr_t tb_execute(uint8_t *tb_ptr)
 {
-    return (uint8_t *) EM_ASM_INT({
-        var fun = CompiledTB[$0|0];
-        if((fun !== undefined) && (fun !== null)) {
-            return fun()|0;
-        }
-        var tmp = TBCount[$0|0] | 0;
-        TBCount[$0|0] = (tmp + 1) | 0;
-        return (tmp >= codegenThreshold) ? 321 : 123;
-    }, tb_ptr);
+    return (uintptr_t) EM_ASM_INT({
+        return CompiledTB[$0|0]($1|0);
+    }, tb_ptr, NORMAL_EXEC);
+}
+
+void update_compiler_settings(int threshold, int print) {
+    compilation_threshold = threshold;
+    tb_print_count = print;
 }
 
 static int need_print_tb()
 {
-    return EM_ASM_INT_V({
-        if(tbPrintCount > 0) {
-            tbPrintCount -= 1;
-            return 1;
-        } else {
+    if(tb_print_count > 0) {
+        tb_print_count -= 1;
+        return TRUE;
+    } else {
+        return FALSE;
+    }
+}
+
+void fast_invalidate_tb(uint8_t *tb_ptr)
+{
+    TranslationBlock *tb = (TranslationBlock *) EM_ASM_INT({
+        var fun = CompiledTB[$0|0];
+        delete CompiledTB[$0|0];
+        if(fun !== undefined)
+            return fun($1|0)|0;
+        else
             return 0;
-        }
-    });
+    }, tb_ptr, GET_TB_PTR);
+    if(tb) {
+        tb->execution_count = 0;
+        if(tb->compilation_status != COMPILED)
+            abort();
+        tb->compilation_status = NOT_COMPILED;
+    }
 }
 
-void fast_invalidate_tb(int tb_ptr)
+void invalidate_tb(uint8_t *tb_ptr)
 {
-    EM_ASM_ARGS({
-        CompiledTB[$0|0] = null;
-    }, tb_ptr);
-}
-
-void invalidate_tb(int tb_ptr)
-{
-    int start, length;
+    uint8_t *start;
+    int length;
     if(!get_tb_start_and_length(tb_ptr, &start, &length))
         return;
     fast_invalidate_tb(start);
@@ -271,10 +282,10 @@ unsigned long long mul_unsigned_long_long(unsigned long long x, unsigned long lo
     return x * y;
 }
 
-void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth, int loaded, int dirty);
+int codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth, int loaded, int dirty);
 
 // based on tci.c
-static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
+static int codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
 {
     ptr = translation_buf;
     OUT("CompiledTB[0x%08x] = function(stdlib, ffi, heap) {\n", (unsigned int)tb_ptr);
@@ -312,7 +323,8 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
     OUT("var qemu_st_beq = ffi.qemu_st_beq;\n");
 
     OUT("\n");
-    OUT("function tb_fun() {\n");
+    OUT("function tb_fun(mode) {\n");
+    OUT("  var mode = mode|0;\n");
     OUT("  var u0 = 0, u1 = 0, u2 = 0, u3 = 0, result = 0;\n");
     OUT("  var r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;\n");
     OUT("  var r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0, r16 = 0, r17 = 0, r18 = 0, r19 = 0;\n");
@@ -324,18 +336,23 @@ static void codegen(CPUArchState *env, uint8_t *tb_ptr, int length)
     int dirty = 0;
     load_reg(TCG_AREG0, &loaded);
     OUT("  env = r%d|0;\n", TCG_AREG0);
+    OUT("  if(mode == %d) return %d;\n", GET_TB_PTR, (int)current_cpu->current_tb);
 
     OUT("  START: do {\n");
-    codegen_main(tb_ptr, tb_ptr + length, tb_ptr, 0, loaded, dirty);
+
+    if(!codegen_main(tb_ptr, tb_ptr + length, tb_ptr, 0, loaded, dirty))
+        return FALSE;
+
     OUT("    break;\n");
     OUT("  } while(1); abort(); return 0|0;\n");
 
     OUT("}\n");
     OUT("return {tb_fun: tb_fun};\n");
     OUT("}(window, CompilerFFI, Module.buffer)[\"tb_fun\"]\n");
+    return TRUE;
 }
 
-void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth, int loaded, int dirty)
+int codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth, int loaded, int dirty)
 {
     if(depth > 30)
         abort();
@@ -346,18 +363,17 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             abort();
         }
 
-        if(tb_ptr < tb_start || tb_ptr >= tb_end || (tb_ptr == tb_start && !first_insn))
+        if(tb_ptr < tb_start || tb_ptr >= tb_end)
         {
-            write_dirty_regs(dirty);
-            OUT("    return %d;\n", -(int)tb_ptr);
-            return;
+            fprintf(stderr, "Generating code outside of original TB(%p - %p): %p\n", tb_start, tb_end, tb_ptr);
+            return FALSE;
         }
-        /*if(tb_ptr == tb_start && !first_insn)
+        if(tb_ptr == tb_start && !first_insn)
         {
             write_dirty_regs(dirty);
             OUT("    continue START;\n");
-            return;
-        }*/
+            return TRUE;
+        }
         first_insn = 0;
         TCGOpcode opc = tb_ptr[0];
 #if !defined(NDEBUG)
@@ -371,7 +387,6 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
         TCGCond condition;
         TCGMemOpIdx oi;
 
-        int start, length;
         /* Skip opcode and size entry. */
         tb_ptr += 2;
         switch (opc) {
@@ -580,7 +595,8 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
             label = tci_read_label(&tb_ptr);
             tci_compare32(condition, reg0, reg1);
             OUT("    if(result|0) {\n");
-            codegen_main(tb_start, tb_end, (uint8_t *) label, depth + 1, loaded, dirty);
+            if(!codegen_main(tb_start, tb_end, (uint8_t *) label, depth + 1, loaded, dirty))
+                return FALSE;
             OUT("    break;\n");
             OUT("    }\n");
             break;
@@ -689,7 +705,7 @@ void codegen_main(uint8_t *tb_start, uint8_t *tb_end, uint8_t *tb_ptr, int depth
         case INDEX_op_exit_tb:
             write_dirty_regs(dirty);
             OUT("    return 0x%08x|0;\n", (unsigned int)ldq_he_p(tb_ptr));
-            return;
+            return TRUE;
         case INDEX_op_goto_tb:
             t0 = tci_read_i32(&tb_ptr);
             assert(tb_ptr == old_code_ptr + op_size);
@@ -867,8 +883,11 @@ static const uintptr_t sp_value = (uintptr_t)(tcg_temps + CPU_TEMP_BUF_NLONGS);
 
 uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
 {
-//    fprintf(stderr, "Exec: %08x\n", tb_ptr);
-
+    struct TranslationBlock *tb = current_cpu->current_tb;
+    if(tb->tc_ptr != tb_ptr) {
+        fprintf(stderr, "Incorrect current_tb\n");
+        abort();
+    }
     if(tci_reg[TCG_REG_CALL_STACK] != sp_value) {
         fprintf(stderr, "sp_value: %x %x\n", tci_reg[TCG_REG_CALL_STACK], sp_value);
     }
@@ -876,45 +895,35 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
     tci_reg[TCG_AREG0] = (tcg_target_ulong)env;
     tci_reg[TCG_REG_CALL_STACK] = sp_value;
 
-    int start, length;
-
-    int res = -(int)tb_ptr;
-    do {
-        tb_ptr = -res;
-        if(!get_tb_start_and_length(tb_ptr, &start, &length))
-            abort();
-        if(tb_ptr != start)
-            fprintf(stderr, "tb_ptr = %08x start = %08x\n", tb_ptr, start);
-        tb_count += 1;
-        res = tb_try_execute(tb_ptr);
-        if(res != TB_INTERPRET)
-            compiled_tb_count += 1;
-    }
-    while(res < 0);
-//    fprintf(stderr, "res = %d\n", res);
-    if(res == TB_INTERPRET)
-    {
-        res = tcg_qemu_tb_exec_real(env, tb_ptr, sp_value);
-//        fprintf(stderr, "Return: %08x\n", res);
-        return res;
-    }
-
-    if(res != TB_COMPILE_PENDING)
-    {
-//        fprintf(stderr, "Return: %08x\n", res);
-        return res;
+    if(tb->compilation_status == NOT_COMPILED) {
+        tb->execution_count += 1;
+        if(tb->execution_count > compilation_threshold) {
+            double t1 = get_time();
+            translation_buf[0] = 0;
+            uint8_t *start;
+            int length;
+            if(!get_tb_start_and_length(tb_ptr, &start, &length) || start != tb_ptr)
+                abort();
+            if(codegen(env, start, length)) {
+                if(need_print_tb())
+                {
+                    fprintf(stderr, "Compiling %p:\n%s\n", tb_ptr, translation_buf);
+                }
+                emscripten_run_script(translation_buf);
+                tb->compilation_status = COMPILED;
+            } else {
+                tb->compilation_status = COMPILATION_FAILED;
+            }
+            compiler_time += get_time() - t1;
+        }
     }
 
-    double t1 = get_time();
-    translation_buf[0] = 0;
-    codegen(env, start, length);
-    if(need_print_tb())
-    {
-        fprintf(stderr, "Compiling %p:\n%s\n", tb_ptr, translation_buf);
+    tb_count += 1;
+    if(tb->compilation_status == COMPILED) {
+        compiled_tb_count += 1;
+        return tb_execute(tb_ptr);
+    } else {
+        return tcg_qemu_tb_exec_real(env, tb_ptr, sp_value);
     }
-    emscripten_run_script(translation_buf);
-    compiler_time += get_time() - t1;
-
-    return tcg_qemu_tb_exec(env, tb_ptr);
 }
 #endif

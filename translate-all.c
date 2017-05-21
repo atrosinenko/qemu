@@ -718,6 +718,7 @@ static TranslationBlock *tb_alloc(target_ulong pc)
 
 void tb_free(TranslationBlock *tb)
 {
+    fast_invalidate_tb(tb->tc_ptr);
     /* In practice this is mostly used for single use temporary TB
        Ignore the hard cases and just back up if this TB happens to
        be the last one generated.  */

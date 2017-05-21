@@ -21,16 +21,16 @@ extern "C" void on_tb_end(int tb_start, int tb_ptr)
     tb_length[tb_start] = tb_ptr - tb_start;
 }
 
-extern "C" int get_tb_start_and_length(int ptr, int *start, int *length)
+extern "C" int get_tb_start_and_length(uint8_t *ptr, uint8_t **start, int *length)
 {
-    std::map<int, int>::const_iterator it = tb_length.lower_bound(ptr);
-    if(it->first > ptr)
+    std::map<int, int>::const_iterator it = tb_length.lower_bound((int)ptr);
+    if(it->first > (int)ptr)
     {
         if(it == tb_length.begin())
             return 0;
         --it;
     }
-    *start = it->first;
+    *start = (uint8_t *)it->first;
     *length = it->second;
     return (*start <= ptr) && (ptr < *start + *length);
 }

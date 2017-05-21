@@ -174,6 +174,12 @@ struct TranslationBlock {
        jmp_first */
     struct TranslationBlock *jmp_next[2];
     struct TranslationBlock *jmp_first;
+
+#define NOT_COMPILED       0
+#define COMPILED           1
+#define COMPILATION_FAILED 2
+    long long execution_count;
+    int compilation_status;
 };
 
 #include "exec/spinlock.h"
