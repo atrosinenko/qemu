@@ -1474,9 +1474,18 @@
           configurationElement.style.display = 'block';
         }
 
-        var script = document.createElement('script');
-        script.src = "qemu-system-" + arch + ".js";
-        document.body.appendChild(script);
+        var emterpretXHR = new XMLHttpRequest();
+        emterpretXHR.open('GET', 'qemu-system-' + arch + '-emterpreter.data', true);
+        emterpretXHR.responseType = 'arraybuffer';
+        emterpretXHR.onload = function() {
+          Module.emterpreterFile = emterpretXHR.response;
+
+          var script = document.createElement('script');
+          script.src = "qemu-system-" + arch + ".js";
+          document.body.appendChild(script);
+        };
+        emterpretXHR.onerror = emterpretXHR.onload;
+        emterpretXHR.send(null);
       }
 
       function fileForDownload(str) {
