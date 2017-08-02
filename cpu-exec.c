@@ -439,20 +439,23 @@ int cpu_exec(CPUState *cpu)
                     if (interrupt_request & CPU_INTERRUPT_DEBUG) {
                         cpu->interrupt_request &= ~CPU_INTERRUPT_DEBUG;
                         cpu->exception_index = EXCP_DEBUG;
-                        cpu_loop_exit(cpu);
+                        //cpu_loop_exit(cpu);
+                        goto fast_cpu_loop_exit;
                     }
                     if (interrupt_request & CPU_INTERRUPT_HALT) {
                         cpu->interrupt_request &= ~CPU_INTERRUPT_HALT;
                         cpu->halted = 1;
                         cpu->exception_index = EXCP_HLT;
-                        cpu_loop_exit(cpu);
+                        //cpu_loop_exit(cpu);
+                        goto fast_cpu_loop_exit;
                     }
 #if defined(TARGET_I386)
                     if (interrupt_request & CPU_INTERRUPT_INIT) {
                         cpu_svm_check_intercept_param(env, SVM_EXIT_INIT, 0);
                         do_cpu_init(x86_cpu);
                         cpu->exception_index = EXCP_HALTED;
-                        cpu_loop_exit(cpu);
+                        //cpu_loop_exit(cpu);
+                        goto fast_cpu_loop_exit;
                     }
 #else
                     if (interrupt_request & CPU_INTERRUPT_RESET) {
@@ -478,7 +481,8 @@ int cpu_exec(CPUState *cpu)
                 if (unlikely(cpu->exit_request)) {
                     cpu->exit_request = 0;
                     cpu->exception_index = EXCP_INTERRUPT;
-                    cpu_loop_exit(cpu);
+                    //cpu_loop_exit(cpu);
+                    goto fast_cpu_loop_exit;
                 }
                 spin_lock(&tcg_ctx.tb_ctx.tb_lock);
                 have_tb_lock = true;
@@ -547,7 +551,8 @@ int cpu_exec(CPUState *cpu)
                             }
                             cpu->exception_index = EXCP_INTERRUPT;
                             next_tb = 0;
-                            cpu_loop_exit(cpu);
+                            //cpu_loop_exit(cpu);
+                            goto fast_cpu_loop_exit;
                         }
                         break;
                     }
@@ -563,6 +568,8 @@ int cpu_exec(CPUState *cpu)
                    only be set by a memory fault) */
             } /* for(;;) */
         } else {
+                fast_cpu_loop_exit:
+                cpu->current_tb = NULL;
             /* Reload env after longjmp - the compiler may have smashed all
              * local variables as longjmp is marked 'noreturn'. */
             cpu = current_cpu;
