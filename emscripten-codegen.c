@@ -17,16 +17,16 @@ void init_emscripten_codegen()
     EM_ASM({
         CompiledTB = {};
         TBCount = {};
-        CompilerFFI = {
+        CompilerFFI = ({
             dynCall_iiiiiiiiiii: dynCall_iiiiiiiiiii,
             getTempRet0: Runtime.getTempRet0,
-            badAlignment: function() { throw "bad alignment"; },
+            badAlignment: function() { throw 'bad alignment'; },
             _i64Add: Module._i64Add,
             _i64Subtract: Module._i64Subtract,
             _mul_unsigned_long_long: Module._mul_unsigned_long_long,
             Math_imul: Math.imul,
             getThrew: function() { return asm.__THREW__|0; },
-            abort: function() { throw "abort"; },
+            abort: function() { throw 'abort'; },
             qemu_ld_ub: Module._helper_ret_ldub_mmu,
             qemu_ld_leuw: Module._helper_le_lduw_mmu,
             qemu_ld_leul: Module._helper_le_ldul_mmu,
@@ -41,7 +41,7 @@ void init_emscripten_codegen()
             qemu_st_bel: Module._helper_be_stl_mmu,
             qemu_st_leq: Module._helper_le_stq_mmu,
             qemu_st_beq: Module._helper_be_stq_mmu
-        };
+        });
     });
 #endif
 }
