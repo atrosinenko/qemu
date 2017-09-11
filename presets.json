@@ -13,7 +13,8 @@
       "OpenWRT x86": {
         "kernel": "downloaded/openwrt-x86-vmlinuz",
         "cdrom": "downloaded/openwrt-x86-rootfs",
-        "append": "root=0b00"
+        "append": "root=0b00",
+        "misc": "-icount shift=auto -rtc clock=vm"
       }
     }
   },
@@ -22,7 +23,8 @@
     "args": ["-net", "none", "-vga", "none", "-monitor", "none", "-parallel", "none"],
     "variants": {
       "OpenWRT": {
-        "kernel": "downloaded/openwrt-mips.elf"
+        "kernel": "downloaded/openwrt-mips.elf",
+        "misc": "-icount shift=auto -rtc clock=vm"
       }
     }
   }
