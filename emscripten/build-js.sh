@@ -12,6 +12,7 @@ function link_bin() {
   base=$(basename $1)
   ln -sf $1 $base.bc
   time emcc $base.bc $OPTS \
+    $build/stub/*.so \
     $build/$GLIB_SRC/glib/.libs/libglib-2.0.so \
     $build/$PIXMAN_SRC/pixman/.libs/libpixman-1.so \
     -o $base.html \

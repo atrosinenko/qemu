@@ -10,7 +10,9 @@ typedef struct QemuEvent QemuEvent;
 typedef struct QemuLockCnt QemuLockCnt;
 typedef struct QemuThread QemuThread;
 
-#ifdef _WIN32
+#if defined(__EMSCRIPTEN__)
+#include "qemu/thread-null.h"
+#elif defined(_WIN32)
 #include "qemu/thread-win32.h"
 #else
 #include "qemu/thread-posix.h"

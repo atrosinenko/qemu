@@ -1702,7 +1702,11 @@ static void qemu_cpu_kick_thread(CPUState *cpu)
         return;
     }
     cpu->thread_kicked = true;
+#ifndef __EMSCRIPTEN__
     err = pthread_kill(cpu->thread->thread, SIG_IPI);
+#else
+    err = 1;
+#endif
     if (err) {
         fprintf(stderr, "qemu:%s: %s", __func__, strerror(err));
         exit(1);

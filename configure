@@ -6157,6 +6157,10 @@ else
   echo "CONFIG_POSIX=y" >> $config_host_mak
 fi
 
+if test "$emscripten" = "yes" ; then
+  echo "CONFIG_EMSCRIPTEN=y" >> $config_host_mak
+fi
+
 if test "$linux" = "yes" ; then
   echo "CONFIG_LINUX=y" >> $config_host_mak
 fi

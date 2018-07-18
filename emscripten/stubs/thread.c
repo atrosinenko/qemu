@@ -15,3 +15,8 @@ int pthread_join(pthread_t thread, void **retval)
 	*retval = thread;
 	return 0;
 }
+
+int pthread_atfork(void (*prepare)(void), void (*parent)(void), void (*child)(void))
+{
+	return 0;
+}
