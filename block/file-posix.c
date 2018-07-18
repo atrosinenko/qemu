@@ -52,6 +52,10 @@
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
+#ifdef __EMSCRIPTEN__
+#include <sys/ioctl.h>
+#endif
+
 #ifdef __sun__
 #define _POSIX_PTHREAD_SEMANTICS 1
 #include <sys/dkio.h>

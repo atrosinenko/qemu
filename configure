@@ -406,6 +406,7 @@ slirp="yes"
 oss_lib=""
 bsd="no"
 linux="no"
+emscripten="no"
 solaris="no"
 profiler="no"
 cocoa="no"
@@ -620,7 +621,9 @@ int main(void) { return 0; }
 EOF
 }
 
-if check_define __linux__ ; then
+if check_define __EMSCRIPTEN__; then
+  targetos='Emscripten'
+elif check_define __linux__ ; then
   targetos="Linux"
 elif check_define _WIN32 ; then
   targetos='MINGW32'
@@ -672,6 +675,8 @@ esac
 if test ! -z "$cpu" ; then
   # command line argument
   :
+elif check_define __EMSCRIPTEN__ ; then
+  cpu="emscripten"
 elif check_define __i386__ ; then
   cpu="i386"
 elif check_define __x86_64__ ; then
@@ -746,6 +751,10 @@ case "$cpu" in
     cpu="sparc"
     supported_cpu="yes"
     cross_cc_sparc=$host_cc
+  ;;
+  emscripten)
+    supported_cpu="yes"
+    cross_cc_emscripten=$host_cc
   ;;
   *)
     # This will result in either an error or falling back to TCI later
@@ -870,6 +879,13 @@ Linux)
   vhost_scsi="yes"
   vhost_vsock="yes"
   QEMU_INCLUDES="-I\$(SRC_PATH)/linux-headers -I$(pwd)/linux-headers $QEMU_INCLUDES"
+  supported_os="yes"
+;;
+Emscripten)
+  emscripten="yes"
+  docs="no"
+  glusterfs="no"
+  QEMU_CFLAGS="$QEMU_CFLAGS -m32 -s USE_ZLIB=1"
   supported_os="yes"
 ;;
 esac
@@ -1509,6 +1525,12 @@ case "$cpu" in
            cross_cc_i386=$cc
            cross_cc_cflags_i386=$CPU_CFLAGS
            ;;
+    emscripten)
+           CPU_CFLAGS="-m32"
+           LDFLAGS="-m32 $LDFLAGS"
+           cross_cc_emscripten=$cc
+           cross_cc_emscripten=$CPU_CFLAGS
+           ;;
     # No special flags required for other host CPUs
 esac
 
@@ -1876,7 +1898,7 @@ static __thread int tls_var;
 int main(void) { return tls_var; }
 EOF
 
-if ! compile_prog "-Werror" "" ; then
+if (test "$emscripten" != "yes") && ! compile_prog "-Werror" "" ; then
     error_exit "Your compiler does not support the __thread specifier for " \
 	"Thread-Local Storage (TLS). Please upgrade to a version that does."
 fi
@@ -3479,7 +3501,10 @@ for i in $glib_modules; do
         LIBS="$glib_libs $LIBS"
         libs_qga="$glib_libs $libs_qga"
     else
-        error_exit "glib-$glib_req_ver $i is required to compile QEMU"
+        if test "$emscripten" != "yes"
+        then
+            error_exit "glib-$glib_req_ver $i is required to compile QEMU"
+        fi
     fi
 done
 
@@ -6051,6 +6076,12 @@ if test "$supported_os" = "no"; then
     echo "configure has succeeded and you can continue to build, but"
     echo "if you care about QEMU on this platform you should contact"
     echo "us upstream at qemu-devel@nongnu.org."
+fi
+
+if test "$emscripten" = "yes"
+then
+    vector16="no"
+    eventfd="no"
 fi
 
 config_host_mak="config-host.mak"

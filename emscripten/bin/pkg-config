@@ -1,0 +1,3 @@
+#!/bin/sh
+
+echo $* | grep -qE "glib|gthread|gl|pixman"

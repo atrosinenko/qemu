@@ -51,6 +51,14 @@
 # include <termios.h>
 #endif
 
+#ifdef __EMSCRIPTEN__
+static int openpty(int *amaster, int *aslave, char *name,
+                   struct termios *termp, struct winsize *winp)
+{
+        return -1;
+}
+#endif
+
 #ifdef __sun__
 /* Once Solaris has openpty(), this is going to be removed. */
 static int openpty(int *amaster, int *aslave, char *name,
