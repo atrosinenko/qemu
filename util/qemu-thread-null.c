@@ -18,8 +18,19 @@
 
 // TODO What about __thread?
 
-static int current_thread_id = -1;
-void qemu_thread_switch(QemuThread *thread) {
+static int current_thread_id = 0;
+
+int qemu_get_thread_id(void)
+{
+    return current_thread_id;
+}
+
+void qemu_thread_switch_to_main(void)
+{
+    current_thread_id = 0;
+}
+void qemu_thread_switch(QemuThread *thread)
+{
     current_thread_id = thread->id;
 }
 
@@ -207,11 +218,12 @@ void qemu_thread_atexit_remove(Notifier *notifier)
 
 
 
-static int thread_counter = 0;
+static int thread_counter = 1;
 void qemu_thread_create(QemuThread *thread, const char *name,
                        void *(*start_routine)(void*),
                        void *arg, int mode)
 {
+    assert(thread_counter < MAX_THREADS);
     thread->id = thread_counter++;
     fprintf(stderr, "Requested start of thread: %s\n", name);
 }

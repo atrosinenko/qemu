@@ -74,6 +74,8 @@ static MemsetThread *memset_thread;
 static int memset_num_threads;
 static bool memset_thread_failed;
 
+// See util/qemu-thread-null.c
+#ifndef __EMSCRIPTEN__
 int qemu_get_thread_id(void)
 {
 #if defined(__linux__)
@@ -82,6 +84,7 @@ int qemu_get_thread_id(void)
     return getpid();
 #endif
 }
+#endif
 
 int qemu_daemon(int nochdir, int noclose)
 {

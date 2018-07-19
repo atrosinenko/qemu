@@ -7,6 +7,9 @@ typedef QemuMutex QemuRecMutex;
 #define qemu_rec_mutex_trylock qemu_mutex_trylock
 #define qemu_rec_mutex_unlock qemu_mutex_unlock
 
+// For kludgy __thread emulation
+#define MAX_THREADS 10
+
 struct QemuMutex {
     int is_rec;
     int lock_counter;
@@ -36,6 +39,7 @@ struct QemuThread {
     int id;
 };
 
+void qemu_thread_switch_to_main(void);
 void qemu_thread_switch(QemuThread *thread);
 
 #endif
