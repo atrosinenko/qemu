@@ -327,7 +327,7 @@ static int ptr_cmp_tb_tc(const void *ptr, const struct tb_tc *s)
     return 0;
 }
 
-static gint tb_tc_cmp(gconstpointer ap, gconstpointer bp)
+static gint tb_tc_cmp(gconstpointer ap, gconstpointer bp, int unused)
 {
     const struct tb_tc *a = ap;
     const struct tb_tc *b = bp;
