@@ -18,11 +18,11 @@ function link_bin() {
     -o $base.html \
     -s USE_SDL=2 \
     -s USE_ZLIB=1 \
-    -s INVOKE_RUN=0 \
     --shell-file $top/shell.html \
     $ARGS
   ls -lh $base*
 }
+#    -s INVOKE_RUN=0 \
 
 cd $build/qemu
 

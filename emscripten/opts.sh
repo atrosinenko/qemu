@@ -1,8 +1,8 @@
 if true
 then
 	#OPTS="-m32 -O3 -s ALLOW_MEMORY_GROWTH=1"
-	OPTS="-m32 -O3"
-	#OPTS="-m32 -Os -g2"
+	#OPTS="-m32 -O3"
+	OPTS="-m32 -Os -g2"
 	#OPTS="-m32 -O2 -g3 -s ASSERTIONS=1 -s SAFE_HEAP=1 -s ALLOW_MEMORY_GROWTH=1 -s INLINING_LIMIT=1"
 	BUILDTYPE=emscripten
 	CONFRUNNER=emconfigure

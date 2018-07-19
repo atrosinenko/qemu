@@ -20,3 +20,9 @@ int pthread_atfork(void (*prepare)(void), void (*parent)(void), void (*child)(vo
 {
 	return 0;
 }
+
+int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset)
+{
+    return 0;
+}
+
