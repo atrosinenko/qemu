@@ -32,6 +32,8 @@
 #include "qemu/atomic.h"
 #include "qemu/thread.h"
 #include "qemu/main-loop.h"
+#include "qemu/thread-funcs.h"
+
 #if defined(CONFIG_MALLOC_TRIM)
 #include <malloc.h>
 #endif
@@ -64,7 +66,11 @@ static inline int rcu_gp_ongoing(unsigned long *ctr)
 /* Written to only by each individual reader. Read by both the reader and the
  * writers.
  */
+#ifndef __EMSCRIPTEN__
 __thread struct rcu_reader_data rcu_reader;
+#else
+__thread struct rcu_reader_data rcu_reader_array[MAX_THREADS];
+#endif
 
 /* Protected by rcu_registry_lock.  */
 typedef QLIST_HEAD(, rcu_reader_data) ThreadList;
@@ -235,13 +241,22 @@ retry:
     return node;
 }
 
+static QemuThread thread;
+
 static void *call_rcu_thread(void *opaque)
 {
-    struct rcu_head *node;
-
     rcu_register_thread();
 
     for (;;) {
+        call_rcu_thread_func();
+    }
+    abort();
+}
+
+void call_rcu_thread_func() {
+    struct rcu_head *node;
+    qemu_thread_switch(&thread);
+
         int tries = 0;
         int n = atomic_read(&rcu_call_count);
 
@@ -249,6 +264,7 @@ static void *call_rcu_thread(void *opaque)
          * Fetch rcu_call_count now, we only must process elements that were
          * added before synchronize_rcu() starts.
          */
+#ifndef __EMSCRIPTEN__
         while (n == 0 || (n < RCU_CALL_MIN_SIZE && ++tries <= 5)) {
             g_usleep(10000);
             if (n == 0) {
@@ -263,6 +279,7 @@ static void *call_rcu_thread(void *opaque)
             }
             n = atomic_read(&rcu_call_count);
         }
+#endif
 
         atomic_sub(&rcu_call_count, n);
         synchronize_rcu();
@@ -284,8 +301,6 @@ static void *call_rcu_thread(void *opaque)
             node->func(node);
         }
         qemu_mutex_unlock_iothread();
-    }
-    abort();
 }
 
 void call_rcu1(struct rcu_head *node, void (*func)(struct rcu_head *node))
@@ -296,25 +311,46 @@ void call_rcu1(struct rcu_head *node, void (*func)(struct rcu_head *node))
     qemu_event_set(&rcu_call_ready_event);
 }
 
+#ifdef __EMSCRIPTEN__
+void rcu_register_thread(void)
+{
+    abort();
+}
+void rcu_register_thread_id(int thread_id)
+{
+    assert(rcu_reader_array[thread_id].ctr == 0);
+    qemu_mutex_lock(&rcu_registry_lock);
+    QLIST_INSERT_HEAD(&registry, &rcu_reader_array[thread_id], node);
+#else
 void rcu_register_thread(void)
 {
     assert(rcu_reader.ctr == 0);
     qemu_mutex_lock(&rcu_registry_lock);
     QLIST_INSERT_HEAD(&registry, &rcu_reader, node);
+#endif
     qemu_mutex_unlock(&rcu_registry_lock);
 }
 
+#ifdef __EMSCRIPTEN__
+void rcu_unregister_thread(void)
+{
+    abort();
+}
+void rcu_unregister_thread_id(int thread_id)
+{
+    qemu_mutex_lock(&rcu_registry_lock);
+    QLIST_REMOVE(&rcu_reader_array[thread_id], node);
+#else
 void rcu_unregister_thread(void)
 {
     qemu_mutex_lock(&rcu_registry_lock);
     QLIST_REMOVE(&rcu_reader, node);
+#endif
     qemu_mutex_unlock(&rcu_registry_lock);
 }
 
 static void rcu_init_complete(void)
 {
-    QemuThread thread;
-
     qemu_mutex_init(&rcu_registry_lock);
     qemu_mutex_init(&rcu_sync_lock);
     qemu_event_init(&rcu_gp_event, true);
@@ -327,7 +363,8 @@ static void rcu_init_complete(void)
     qemu_thread_create(&thread, "call_rcu", call_rcu_thread,
                        NULL, QEMU_THREAD_DETACHED);
 
-    rcu_register_thread();
+    rcu_register_thread_id(0);
+    rcu_register_thread_id(thread.id);
 }
 
 static int atfork_depth = 1;

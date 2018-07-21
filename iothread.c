@@ -23,6 +23,7 @@
 #include "qemu/error-report.h"
 #include "qemu/rcu.h"
 #include "qemu/main-loop.h"
+#include "qemu/thread-funcs.h"
 
 typedef ObjectClass IOThreadClass;
 
@@ -41,6 +42,7 @@ typedef ObjectClass IOThreadClass;
 #define IOTHREAD_POLL_MAX_NS_DEFAULT 0ULL
 #endif
 
+// TODO only single io_thread
 static __thread IOThread *my_iothread;
 
 AioContext *qemu_get_current_aio_context(void)
@@ -61,6 +63,17 @@ static void *iothread_run(void *opaque)
     qemu_mutex_unlock(&iothread->init_done_lock);
 
     while (iothread->running) {
+#ifdef __EMSCRIPTEN__
+        iothread_run_func();
+    }
+    rcu_unregister_thread();
+    return NULL;
+}
+
+void iothread_run_func() {
+    IOThread *iothread = my_iothread;
+    qemu_thread_switch(&iothread->thread);
+#endif
         aio_poll(iothread->ctx, true);
 
         if (atomic_read(&iothread->worker_context)) {
@@ -77,10 +90,12 @@ static void *iothread_run(void *opaque)
 
             g_main_context_pop_thread_default(iothread->worker_context);
         }
+#ifndef __EMSCRIPTEN__
     }
 
     rcu_unregister_thread();
     return NULL;
+#endif
 }
 
 /* Runs in iothread_run() thread */
@@ -179,7 +194,16 @@ static void iothread_complete(UserCreatable *obj, Error **errp)
                        iothread, QEMU_THREAD_JOINABLE);
     g_free(thread_name);
     g_free(name);
+    
+#ifdef __EMSCRIPTEN__
+    assert(my_iothread == NULL);
 
+    rcu_register_thread_id(iothread->thread.id);
+
+    my_iothread = iothread;
+    iothread->thread_id = qemu_get_thread_id();
+#endif
+    
     /* Wait for initialization to complete */
     qemu_mutex_lock(&iothread->init_done_lock);
     while (iothread->thread_id == -1) {

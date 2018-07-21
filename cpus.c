@@ -53,6 +53,7 @@
 #include "hw/nmi.h"
 #include "sysemu/replay.h"
 #include "hw/boards.h"
+#include "qemu/thread-funcs.h"
 
 #ifdef CONFIG_LINUX
 
@@ -1162,6 +1163,7 @@ static void qemu_tcg_rr_wait_io_event(CPUState *cpu)
 {
     while (all_cpu_threads_idle()) {
         stop_tcg_kick_timer();
+        break; // TODO Is it safe?
         qemu_cond_wait(cpu->halt_cond, &qemu_global_mutex);
     }
 
@@ -1393,13 +1395,28 @@ static void deal_with_unplugged_cpus(void)
  * This is done explicitly rather than relying on side-effects
  * elsewhere.
  */
-
+static void qemu_tcg_rr_cpu_thread_init(void *arg);
 static void *qemu_tcg_rr_cpu_thread_fn(void *arg)
+{
+    qemu_tcg_rr_cpu_thread_init(arg);    
+    while (1) {
+        qemu_tcg_rr_cpu_thread_func();
+    }
+
+    rcu_unregister_thread();
+    return NULL;
+}
+
+static void qemu_tcg_rr_cpu_thread_init(void *arg)
 {
     CPUState *cpu = arg;
 
     assert(tcg_enabled());
+#ifdef __EMSCRIPTEN__
+    rcu_register_thread_id(qemu_get_thread_id());
+#else
     rcu_register_thread();
+#endif
     tcg_register_thread();
 
     qemu_mutex_lock_iothread();
@@ -1411,6 +1428,9 @@ static void *qemu_tcg_rr_cpu_thread_fn(void *arg)
     qemu_cond_signal(&qemu_cpu_cond);
 
     /* wait for initial kick-off after machine start */
+
+// TODO Is it safe?
+#ifndef __EMSCRIPTEN__
     while (first_cpu->stopped) {
         qemu_cond_wait(first_cpu->halt_cond, &qemu_global_mutex);
 
@@ -1420,6 +1440,7 @@ static void *qemu_tcg_rr_cpu_thread_fn(void *arg)
             qemu_wait_io_event_common(cpu);
         }
     }
+#endif
 
     start_tcg_kick_timer();
 
@@ -1428,9 +1449,29 @@ static void *qemu_tcg_rr_cpu_thread_fn(void *arg)
     /* process any pending work */
     cpu->exit_request = 1;
 
-    while (1) {
-        qemu_mutex_unlock_iothread();
-        replay_mutex_lock();
+    qemu_mutex_unlock_iothread();
+    replay_mutex_lock();
+}
+
+static void qemu_tcg_rr_cpu_thread_init_all() {
+    current_cpu = first_cpu;
+    qemu_thread_switch(first_cpu->thread);
+    CPUState *cpu = first_cpu;
+    do {
+        qemu_tcg_rr_cpu_thread_init(cpu);
+        cpu = CPU_NEXT(cpu);
+    } while(cpu);
+    qemu_thread_switch_to_main();
+}
+
+void qemu_tcg_rr_cpu_thread_func(void)
+{
+    static CPUState *cpu = NULL;
+    if (!first_cpu || !first_cpu->thread) {
+        // CPU not launched yet
+        return;
+    }
+    qemu_thread_switch(first_cpu->thread);
         qemu_mutex_lock_iothread();
         /* Account partial waits to QEMU_CLOCK_VIRTUAL.  */
         qemu_account_warp_timer();
@@ -1493,10 +1534,8 @@ static void *qemu_tcg_rr_cpu_thread_fn(void *arg)
 
         qemu_tcg_rr_wait_io_event(cpu ? cpu : QTAILQ_FIRST(&cpus));
         deal_with_unplugged_cpus();
-    }
-
-    rcu_unregister_thread();
-    return NULL;
+        qemu_mutex_unlock_iothread();
+        replay_mutex_lock();
 }
 
 static void *qemu_hax_cpu_thread_fn(void *arg)
@@ -2014,10 +2053,16 @@ void qemu_init_vcpu(CPUState *cpu)
     } else {
         qemu_dummy_start_vcpu(cpu);
     }
-
+            
+#ifndef __EMSCRIPTEN__
     while (!cpu->created) {
         qemu_cond_wait(&qemu_cpu_cond, &qemu_global_mutex);
     }
+#else
+    qemu_mutex_unlock_iothread();
+    qemu_tcg_rr_cpu_thread_init_all();
+    qemu_mutex_lock_iothread();
+#endif
 }
 
 void cpu_stop_current(void)

@@ -28,6 +28,7 @@
 #include "qemu/queue.h"
 #include "qemu/atomic.h"
 #include "qemu/sys_membarrier.h"
+#include "qemu/thread.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,7 +69,12 @@ struct rcu_reader_data {
     QLIST_ENTRY(rcu_reader_data) node;
 };
 
+#ifndef __EMSCRIPTEN__
 extern __thread struct rcu_reader_data rcu_reader;
+#else
+extern __thread struct rcu_reader_data rcu_reader_array[MAX_THREADS];
+#define rcu_reader (rcu_reader_array[qemu_get_thread_id()])
+#endif
 
 static inline void rcu_read_lock(void)
 {
@@ -117,6 +123,10 @@ extern void synchronize_rcu(void);
  */
 extern void rcu_register_thread(void);
 extern void rcu_unregister_thread(void);
+#ifdef __EMSCRIPTEN__
+extern void rcu_register_thread_id(int thread_id);
+extern void rcu_unregister_thread_id(int thread_id);
+#endif
 
 /*
  * Support for fork().  fork() support is enabled at startup.

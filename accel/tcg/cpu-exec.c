@@ -698,6 +698,8 @@ int cpu_exec(CPUState *cpu)
         }
     }
 
+    int counter = 0;
+
     /* if an exception is pending, we execute it here */
     while (!cpu_handle_exception(cpu, &ret)) {
         TranslationBlock *last_tb = NULL;
@@ -723,9 +725,15 @@ int cpu_exec(CPUState *cpu)
             /* Try to align the host and virtual clocks
                if the guest is in advance */
             align_clocks(&sc, cpu);
+
+            if (counter++ > 100) {
+                cpu->exit_request = 1;
+                goto exit_label;
+            }
         }
     }
 
+exit_label:
     cc->cpu_exec_exit(cpu);
     rcu_read_unlock();
 

@@ -1858,7 +1858,7 @@ static bool main_loop_should_exit(void)
     return false;
 }
 
-static void main_loop(void)
+static void main_loop(bool preconfig)
 {
 #ifdef CONFIG_PROFILER
     int64_t ti;
@@ -1871,7 +1871,14 @@ static void main_loop(void)
 #ifdef CONFIG_PROFILER
         dev_time += profile_getclock() - ti;
 #endif
+#ifdef __EMSCRIPTEN__
+        if (!preconfig)
+            break;
+#endif
     }
+}
+static void emscripten_main_loop(void) {
+    main_loop(false);
 }
 
 static void version(void)
@@ -4514,7 +4521,7 @@ int main(int argc, char **argv, char **envp)
     parse_numa_opts(current_machine);
 
     /* do monitor/qmp handling at preconfig state if requested */
-    main_loop();
+    main_loop(true);
 
     /* from here on runstate is RUN_STATE_PRELAUNCH */
     machine_run_board_init(current_machine);
@@ -4646,7 +4653,7 @@ int main(int argc, char **argv, char **envp)
     os_setup_post();
 
 #ifdef __EMSCRIPTEN__
-    emscripten_set_main_loop(main_loop, 0, 1);
+    emscripten_set_main_loop(emscripten_main_loop, 0, 1);
 #else
     main_loop();
 #endif

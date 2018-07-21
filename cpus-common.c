@@ -22,6 +22,7 @@
 #include "exec/cpu-common.h"
 #include "qom/cpu.h"
 #include "sysemu/cpus.h"
+#include "qemu/thread-funcs.h"
 
 static QemuMutex qemu_cpu_list_lock;
 static QemuCond exclusive_cond;
@@ -134,8 +135,16 @@ void do_run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data,
 {
     struct qemu_work_item wi;
 
+#ifdef __EMSCRIPTEN__
+    QemuThread old_thread;
+    qemu_thread_get_self(&old_thread);
+    qemu_thread_switch(first_cpu->thread);
+#endif
     if (qemu_cpu_is_self(cpu)) {
         func(cpu, data);
+#ifdef __EMSCRIPTEN__
+        qemu_thread_switch(&old_thread);
+#endif
         return;
     }
 

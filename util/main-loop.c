@@ -34,6 +34,7 @@
 #include "qemu/main-loop.h"
 #include "block/aio.h"
 #include "qemu/error-report.h"
+#include "qemu/thread-funcs.h"
 
 #ifndef _WIN32
 
@@ -230,6 +231,13 @@ static int os_host_main_loop_wait(int64_t timeout)
     qemu_mutex_unlock_iothread();
     replay_mutex_unlock();
 
+#ifdef __EMSCRIPTEN__
+    for (int i = 0; i < 100; ++i) {
+        call_rcu_thread_func();
+        iothread_run_func();
+        qemu_tcg_rr_cpu_thread_func();
+    }
+#endif
     ret = qemu_poll_ns((GPollFD *)gpollfds->data, gpollfds->len, timeout);
 
     replay_mutex_lock();
