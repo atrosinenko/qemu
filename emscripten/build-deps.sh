@@ -72,6 +72,7 @@ function build_glib()
 		--disable-largefile --disable-selinux --disable-fam --disable-xattr --disable-libelf \
 		--disable-libmount \
 		--with-pcre=internal
+    sed --in-place '/EVENTFD/ d' config.h
     $MAKERUNNER make $makeargs
     popd
     touch glib.built
