@@ -1,0 +1,41 @@
+{
+  "root": {
+    "_type": "select",
+    "_title": "QEMU target",
+    "x86": [
+      {
+        "js": "qemu-system-i386.js",
+        "args": [
+          "-serial", "none",
+          "-parallel", "none",
+          "-monitor", "none"
+        ]
+      },
+      {
+        "_type": "checkbox",
+        "_title": "Dummy network",
+        "iftrue": {
+          "files": [ "pc-bios/efi-e1000.rom" ]
+        },
+        "iffalse": {
+          "args": [ "-net", "none" ]
+        }
+      },
+      {
+        "files": [
+          "pc-bios/bios-256k.bin",
+          "pc-bios/vgabios-stdvga.bin",
+          "pc-bios/multiboot.bin"
+        ]
+      },
+      {
+        "_type": "select",
+        "_title": "OS",
+        "Memtest86+": {
+          "files": [ "memtest86+.elf" ],
+          "args": [ "-kernel", "memtest86+.elf" ]
+        }
+      }
+    ]
+  }
+}
