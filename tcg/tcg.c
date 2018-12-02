@@ -63,6 +63,7 @@
 /* Forward declarations for functions declared in tcg-target.inc.c and
    used here. */
 static void tcg_target_init(TCGContext *s);
+void binaryen_module_init(TCGContext *s);
 static const TCGTargetOpDef *tcg_target_op_def(TCGOpcode);
 static void tcg_target_qemu_prologue(TCGContext *s);
 static void patch_reloc(tcg_insn_unit *code_ptr, int type,
@@ -3512,6 +3513,13 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
 
     s->code_buf = tb->tc.ptr;
     s->code_ptr = tb->tc.ptr;
+
+#if 1
+    tcg_out32(s, 0);      /* BB function pointer (after relooper -- see flush_icache_range) */
+    tcg_out32(s, (int)s); /* Link to TCGContext to use in flush_icache_range */
+//    tcg_out32(s, 0);      /* */
+    binaryen_module_init(s);
+#endif
 
 #ifdef TCG_TARGET_NEED_LDST_LABELS
     QSIMPLEQ_INIT(&s->ldst_labels);

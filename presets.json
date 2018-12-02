@@ -33,7 +33,7 @@
         "_title": "OS",
         "Memtest86+": {
           "files": [ "memtest86+.elf" ],
-          "args": [ "-kernel", "memtest86+.elf" ]
+          "args": [ "-kernel", "memtest86+.elf", "-d", "nochain", "-icount", "auto"]
         }
       }
     ]
