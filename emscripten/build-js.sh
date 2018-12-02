@@ -15,6 +15,7 @@ function link_bin() {
     $build/stub/*.so \
     $build/$GLIB_SRC/glib/.libs/libglib-2.0.so \
     $build/$PIXMAN_SRC/pixman/.libs/libpixman-1.so \
+    $build/binaryen/lib/libbinaryen.so \
     -o $base.html \
     -s USE_SDL=2 \
     -s USE_ZLIB=1 \

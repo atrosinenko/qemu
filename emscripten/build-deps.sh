@@ -2,8 +2,8 @@
 
 . emscripten/opts.sh
 export STUBDIR=$(pwd)/emscripten/stubs
-export CFLAGS="$OPTS"
-export CXXFLAGS="$OPTS"
+export CFLAGS="$OPTS -s ERROR_ON_UNDEFINED_SYMBOLS=0"
+export CXXFLAGS="$OPTS -s ERROR_ON_UNDEFINED_SYMBOLS=0"
 
 makeargs="$@"
 
@@ -90,6 +90,17 @@ function build_pixman()
     touch pixman.built
 }
 
+function build_binaryen()
+{
+    test -f binaryen.built && return
+    test -d binaryen || git clone https://github.com/WebAssembly/binaryen.git
+    pushd binaryen
+    emcmake cmake .
+    emmake make
+    popd
+    touch binaryen.built
+}
+
 mkdir -p $DIRNAME
 cd $DIRNAME
 build_stub
@@ -97,4 +108,5 @@ build_libffi
 build_gettext
 build_glib
 build_pixman
+build_binaryen
 
