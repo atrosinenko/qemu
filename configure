@@ -885,6 +885,10 @@ Emscripten)
   emscripten="yes"
   docs="no"
   glusterfs="no"
+  curses="no"
+  gcrypt="no"
+  audio_possible_drivers="sdl"
+  vnc="no"
   QEMU_CFLAGS="$QEMU_CFLAGS -m32 -s USE_ZLIB=1"
   supported_os="yes"
 ;;
@@ -5646,7 +5650,7 @@ qemu_datadir=$datadir$confsuffix
 qemu_localedir="$datadir/locale"
 
 # We can only support ivshmem if we have eventfd
-if [ "$eventfd" = "yes" ]; then
+if [ "$eventfd" = "yes" -a "$emscripten" = "no" ]; then
   ivshmem=yes
 fi
 
@@ -6082,6 +6086,16 @@ if test "$emscripten" = "yes"
 then
     vector16="no"
     eventfd="no"
+    epoll="no"
+    epoll_create1="no"
+    inotify="no"
+    inotify1="no"
+    eventfd="no"
+    ivshmem="no"
+    sem_timedwait="no"
+    fallocate="no"
+    prctl_pr_set_timerslack="no"
+    ppoll="no"
 fi
 
 config_host_mak="config-host.mak"
