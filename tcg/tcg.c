@@ -3514,7 +3514,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     s->code_buf = tb->tc.ptr;
     s->code_ptr = tb->tc.ptr;
 
-#if 1
+#if defined(CONFIG_BINARYEN)
     tcg_out32(s, 0);      /* BB function pointer (after relooper -- see flush_icache_range) */
     tcg_out32(s, (int)s); /* Link to TCGContext to use in flush_icache_range */
 //    tcg_out32(s, 0);      /* */

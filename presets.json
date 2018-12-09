@@ -25,7 +25,8 @@
         "files": [
           "pc-bios/bios-256k.bin",
           "pc-bios/vgabios-stdvga.bin",
-          "pc-bios/multiboot.bin"
+          "pc-bios/multiboot.bin",
+          "pc-bios/kvmvapic.bin"
         ]
       },
       {
@@ -33,7 +34,7 @@
         "_title": "OS",
         "Memtest86+": {
           "files": [ "memtest86+.elf" ],
-          "args": [ "-kernel", "memtest86+.elf", "-d", "nochain", "-icount", "auto"]
+          "args": [ "-kernel", "memtest86+.elf"]
         }
       }
     ]

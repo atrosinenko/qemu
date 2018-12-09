@@ -29,14 +29,16 @@
 // insn = BinaryenExpressionRef, sizeof(void *) == 4
 #define TCG_TARGET_INSN_UNIT_SIZE  4
 
+#define CONFIG_BINARYEN
+
 #define HAVE_TCG_QEMU_TB_EXEC
-#define TCG_TARGET_TLB_DISPLACEMENT_BITS 31
+#define TCG_TARGET_TLB_DISPLACEMENT_BITS 32
 
 #define TCG_TARGET_REG_BITS  32
 #define TCG_TARGET_NB_REGS   31
 
 
-#define TCG_REG_CALL_STACK (TCG_TARGET_NB_REGS - 14)
+#define TCG_REG_CALL_STACK 1
 #define TCG_TARGET_STACK_ALIGN 16
 #define TCG_TARGET_CALL_STACK_OFFSET 0
 
@@ -72,14 +74,8 @@ typedef int TCGReg;
 #define TCG_TARGET_HAS_muluh_i32        0
 #define TCG_TARGET_HAS_mulsh_i32        0
 #define TCG_TARGET_HAS_goto_ptr         0
-#define TCG_TARGET_HAS_direct_jump      1
+#define TCG_TARGET_HAS_direct_jump      0
 
-
-/* Check for the possibility of high-byte extraction and, for 64-bit,
-   zero-extending 32-bit right-shift.  */
-#define TCG_TARGET_extract_i32_valid(ofs, len) ((ofs) == 8 && (len) == 8)
-#define TCG_TARGET_extract_i64_valid(ofs, len) \
-    (((ofs) == 8 && (len) == 8) || ((ofs) + (len)) == 32)
 
 #define TCG_AREG0 0
 

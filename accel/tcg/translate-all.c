@@ -1401,7 +1401,11 @@ static inline void tb_remove_from_jmp_list(TranslationBlock *orig, int n_orig)
    another TB */
 static inline void tb_reset_jump(TranslationBlock *tb, int n)
 {
+#if defined(CONFIG_BINARYEN)
+    uintptr_t addr = NULL;
+#else
     uintptr_t addr = (uintptr_t)(tb->tc.ptr + tb->jmp_reset_offset[n]);
+#endif
     tb_set_jmp_target(tb, n, addr);
 }
 
