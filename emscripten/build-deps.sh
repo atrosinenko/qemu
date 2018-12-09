@@ -43,6 +43,7 @@ function build_gettext()
 		--disable-java --disable-native-java \
 		--disable-largefile \
 		--disable-c++ \
+		--host=emscripten-unknown-gnu \
 		--disable-threads --disable-acl --disable-openmp --disable-curses \
 		--without-emacs
     $MAKERUNNER make $makeargs
@@ -67,10 +68,11 @@ function build_glib()
     export LIBS="-L${curdir}/../gettext-$GETTEXT_VERSION/gettext-runtime/intl/.libs/ -L${curdir}/../stub/"
     
     test -f ./configure || NOCONFIGURE=1 ./autogen.sh
-    $CONFRUNNER ./configure \
+    glib_cv_stack_grows=no $CONFRUNNER ./configure \
 		--disable-always-build-tests --disable-installed-tests \
 		--disable-largefile --disable-selinux --disable-fam --disable-xattr --disable-libelf \
 		--disable-libmount \
+		--host=emscripten-unknown-gnu \
 		--with-pcre=internal
     sed --in-place '/EVENTFD/ d' config.h
     $MAKERUNNER make $makeargs
@@ -84,7 +86,8 @@ function build_pixman()
     test -d $PIXMAN_SRC || wget https://cairographics.org/releases/$PIXMAN_SRC.tar.gz
     test -d $PIXMAN_SRC || tar -axf $PIXMAN_SRC.tar.gz
     pushd $PIXMAN_SRC
-    $CONFRUNNER ./configure
+    $CONFRUNNER ./configure \
+		--host=emscripten-unknown-gnu
     $MAKERUNNER make -C pixman $makeargs
     popd
     touch pixman.built
