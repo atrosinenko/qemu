@@ -232,10 +232,10 @@ static int os_host_main_loop_wait(int64_t timeout)
     replay_mutex_unlock();
 
 #ifdef __EMSCRIPTEN__
-    for (int i = 0; i < 100; ++i) {
-        call_rcu_thread_func();
-        iothread_run_func();
-        qemu_tcg_rr_cpu_thread_func();
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 25; ++j) call_rcu_thread_func();
+        for (int j = 0; j < 25; ++j) iothread_run_func();
+        for (int j = 0; j < 200; ++j) qemu_tcg_rr_cpu_thread_func();
     }
 #endif
     ret = qemu_poll_ns((GPollFD *)gpollfds->data, gpollfds->len, timeout);
