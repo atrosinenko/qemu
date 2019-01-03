@@ -64,8 +64,9 @@ static inline void tcg_out_expr(TCGContext *s, BinaryenExpressionRef expr, uint3
 
 #define BINARYEN_GENERIC_FUNC_TYPE "helper-func"
 #define BINARYEN_GENERIC_FUNC_TYPE_HI "helper-func-hi"
-#define BINARYEN_LD32_FUNC_TYPE    "load32-func"
+#define BINARYEN_LD_FUNC_TYPE      "load-func"
 #define BINARYEN_ST32_FUNC_TYPE    "store32-func"
+#define BINARYEN_ST64_FUNC_TYPE    "store64-func"
 #define BINARYEN_TB_FUNC_TYPE      "tb-func"
 
 #define STORE32(n, expr) tcg_out_expr(s, BinaryenSetLocal(MODULE, (n), BinaryenUnary(MODULE, BinaryenExtendUInt32(), (expr))), 0)
@@ -100,7 +101,7 @@ static inline void tcg_out_expr(TCGContext *s, BinaryenExpressionRef expr, uint3
 static BinaryenType               int32_helper_args[ARRAY_SIZE(tcg_target_call_iarg_regs) + 1];
 static BinaryenType               func_locals_all64[TCG_TARGET_NB_REGS + 1];
 
-static BinaryenFunctionTypeRef helper_type, ld32_type, st32_type, tb_func_type, get_temp_ret_type;
+static BinaryenFunctionTypeRef helper_type, ld_type, st32_type, st64_type, tb_func_type, get_temp_ret_type;
 
 static long tcg_temps[CPU_TEMP_BUF_NLONGS];
 
@@ -121,8 +122,11 @@ void binaryen_module_init(TCGContext *s)
     }
     helper_type =       BinaryenAddFunctionType(MODULE, BINARYEN_GENERIC_FUNC_TYPE,    BinaryenTypeInt32(), int32_helper_args, ARRAY_SIZE(int32_helper_args));
     get_temp_ret_type = BinaryenAddFunctionType(MODULE, BINARYEN_GENERIC_FUNC_TYPE_HI, BinaryenTypeInt32(), NULL, 0);
-    ld32_type =    BinaryenAddFunctionType(MODULE, BINARYEN_LD32_FUNC_TYPE, BinaryenTypeInt32(), int32_helper_args, 4);
+
+    ld_type =    BinaryenAddFunctionType(MODULE, BINARYEN_LD_FUNC_TYPE, BinaryenTypeInt32(), int32_helper_args, 4);
     st32_type =    BinaryenAddFunctionType(MODULE, BINARYEN_ST32_FUNC_TYPE, BinaryenTypeNone(), int32_helper_args, 5);
+    st64_type =    BinaryenAddFunctionType(MODULE, BINARYEN_ST64_FUNC_TYPE, BinaryenTypeNone(), int32_helper_args, 6);
+
     tb_func_type = BinaryenAddFunctionType(MODULE, BINARYEN_TB_FUNC_TYPE, BinaryenTypeInt32(), int32_helper_args, 2);
 }
 
@@ -134,23 +138,23 @@ static void compile_module(BinaryenModuleRef module, uintptr_t tag, BinaryenExpr
 
     BinaryenAddFunctionImport(MODULE, "call_helper",  "env", "call_helper", helper_type);
 
-    BinaryenAddFunctionImport(MODULE, "helper_ret_ldub_mmu", "env", "helper_ret_ldub_mmu", ld32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_le_lduw_mmu" , "env", "helper_le_lduw_mmu" , ld32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_le_ldul_mmu" , "env", "helper_le_ldul_mmu" , ld32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_le_ldq_mmu"  , "env", "helper_le_ldq_mmu"  , ld32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_be_lduw_mmu" , "env", "helper_be_lduw_mmu" , ld32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_be_ldul_mmu" , "env", "helper_be_ldul_mmu" , ld32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_be_ldq_mmu"  , "env", "helper_be_ldq_mmu"  , ld32_type);
+    BinaryenAddFunctionImport(MODULE, "helper_ret_ldub_mmu", "env", "helper_ret_ldub_mmu", ld_type);
+    BinaryenAddFunctionImport(MODULE, "helper_le_lduw_mmu" , "env", "helper_le_lduw_mmu" , ld_type);
+    BinaryenAddFunctionImport(MODULE, "helper_le_ldul_mmu" , "env", "helper_le_ldul_mmu" , ld_type);
+    BinaryenAddFunctionImport(MODULE, "helper_le_ldq_mmu"  , "env", "helper_le_ldq_mmu"  , ld_type);
+    BinaryenAddFunctionImport(MODULE, "helper_be_lduw_mmu" , "env", "helper_be_lduw_mmu" , ld_type);
+    BinaryenAddFunctionImport(MODULE, "helper_be_ldul_mmu" , "env", "helper_be_ldul_mmu" , ld_type);
+    BinaryenAddFunctionImport(MODULE, "helper_be_ldq_mmu"  , "env", "helper_be_ldq_mmu"  , ld_type);
 
     BinaryenAddFunctionImport(MODULE, "get_temp_ret", "env", "get_temp_ret",get_temp_ret_type);
 
     BinaryenAddFunctionImport(MODULE, "helper_ret_stb_mmu", "env", "helper_ret_stb_mmu", st32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_le_stw_mmu", "env", "helper_le_stw_mmu", st32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_le_stl_mmu", "env", "helper_le_stl_mmu", st32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_le_stq_mmu", "env", "helper_le_stq_mmu", st32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_be_stw_mmu", "env", "helper_be_stw_mmu", st32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_be_stl_mmu", "env", "helper_be_stl_mmu", st32_type);
-    BinaryenAddFunctionImport(MODULE, "helper_be_stq_mmu", "env", "helper_be_stq_mmu", st32_type);
+    BinaryenAddFunctionImport(MODULE, "helper_le_stw_mmu", "env", "helper_le_stw_mmu"  , st32_type);
+    BinaryenAddFunctionImport(MODULE, "helper_le_stl_mmu", "env", "helper_le_stl_mmu"  , st32_type);
+    BinaryenAddFunctionImport(MODULE, "helper_le_stq_mmu", "env", "helper_le_stq_mmu"  , st32_type);
+    BinaryenAddFunctionImport(MODULE, "helper_be_stw_mmu", "env", "helper_be_stw_mmu"  , st32_type);
+    BinaryenAddFunctionImport(MODULE, "helper_be_stl_mmu", "env", "helper_be_stl_mmu"  , st32_type);
+    BinaryenAddFunctionImport(MODULE, "helper_be_stq_mmu", "env", "helper_be_stq_mmu"  , st64_type);
 
     BinaryenSetMemory(MODULE, 0, -1, NULL, NULL, NULL, NULL, 0, 0);
     BinaryenAddMemoryImport(MODULE, NULL, "env", "memory", 0);
@@ -163,29 +167,29 @@ static void compile_module(BinaryenModuleRef module, uintptr_t tag, BinaryenExpr
     MODULE = NULL;
 
     EM_ASM({
-        var module = new WebAssembly.Module(new Uint8Array(Module["wasmMemory"].buffer, $1, $2));
+        var module = new WebAssembly.Module(new Uint8Array(Module['wasmMemory'].buffer, $1, $2));
         var instance = new WebAssembly.Instance(module, {
-            "env": {
-                "memory": Module["wasmMemory"],
-                "call_helper": Module["dynCall_jiiiiiiiiiiii"],
+            'env': {
+                'memory': Module['wasmMemory'],
+                'call_helper': Module['dynCall_jiiiiiiiiiiii'],
 
-                "helper_ret_ldub_mmu": Module["_helper_ret_ldub_mmu"],
-                "helper_le_lduw_mmu":  Module["_helper_le_lduw_mmu"],
-                "helper_le_ldul_mmu":  Module["_helper_le_ldul_mmu"],
-                "helper_le_ldq_mmu":   Module["_helper_le_ldq_mmu"],
-                "helper_be_lduw_mmu":  Module["_helper_be_lduw_mmu"],
-                "helper_be_ldul_mmu":  Module["_helper_be_ldul_mmu"],
-                "helper_be_ldq_mmu":   Module["_helper_be_ldq_mmu"],
+                'helper_ret_ldub_mmu': Module['_helper_ret_ldub_mmu'],
+                'helper_le_lduw_mmu':  Module['_helper_le_lduw_mmu'],
+                'helper_le_ldul_mmu':  Module['_helper_le_ldul_mmu'],
+                'helper_le_ldq_mmu':   Module['_helper_le_ldq_mmu'],
+                'helper_be_lduw_mmu':  Module['_helper_be_lduw_mmu'],
+                'helper_be_ldul_mmu':  Module['_helper_be_ldul_mmu'],
+                'helper_be_ldq_mmu':   Module['_helper_be_ldq_mmu'],
 
-                "helper_ret_stb_mmu": Module["_helper_ret_stb_mmu"],
-                "helper_le_stw_mmu":  Module["_helper_le_stw_mmu"],
-                "helper_le_stl_mmu":  Module["_helper_le_stl_mmu"],
-                "helper_le_stq_mmu":  Module["_helper_le_stq_mmu"],
-                "helper_be_stw_mmu":  Module["_helper_be_stw_mmu"],
-                "helper_be_stl_mmu":  Module["_helper_be_stl_mmu"],
-                "helper_be_stq_mmu":  Module["_helper_be_stq_mmu"],
+                'helper_ret_stb_mmu': Module['_helper_ret_stb_mmu'],
+                'helper_le_stw_mmu':  Module['_helper_le_stw_mmu'],
+                'helper_le_stl_mmu':  Module['_helper_le_stl_mmu'],
+                'helper_le_stq_mmu':  Module['_helper_le_stq_mmu'],
+                'helper_be_stw_mmu':  Module['_helper_be_stw_mmu'],
+                'helper_be_stl_mmu':  Module['_helper_be_stl_mmu'],
+                'helper_be_stq_mmu':  Module['_helper_be_stq_mmu'],
 
-                "get_temp_ret": getTempRet0,
+                'get_temp_ret': getTempRet0,
             }
         });
         CompiledTB[$0] = instance.exports["tb_fun"];
@@ -319,7 +323,7 @@ static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
                               const TCGArg *args, const int *const_args)
 {
     int sign_ext_bits;
-    BinaryenExpressionRef expr_tmp, ldst_args[5];
+    BinaryenExpressionRef expr_tmp, ldst_args[6];
     switch (opc) {
     case INDEX_op_exit_tb:
         tcg_out_expr(s, BinaryenReturn(MODULE, RI32(1, args[0])), 0);
@@ -488,20 +492,16 @@ static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
             BINARY32(BinaryenAndInt32(), args[0], expr_tmp, RI32(1, (0xFFFFFFFFu << sign_ext_bits) >> sign_ext_bits));
         }
         break;
-#if 0
     case INDEX_op_qemu_ld_i64:
-        // TODO sign_ext_bits + 32 !!!
-        tcg_out_r(s, *args++);
-        if (TCG_TARGET_REG_BITS == 32) {
-            tcg_out_r(s, *args++);
-        }
-        tcg_out_r(s, *args++);
-        if (TARGET_LONG_BITS > TCG_TARGET_REG_BITS) {
-            tcg_out_r(s, *args++);
-        }
-        tcg_out_i(s, *args++);
+        // (hi = args[1], lo = args[0]) -- dest, args[2] -- taddr, args[3] -- oi
+        assert((get_memop(args[3]) & MO_SIZE) == MO_Q);
+        ldst_args[0] = RI32(0, 0);
+        ldst_args[1] = RI32(const_args[2], args[2]);
+        ldst_args[2] = RI32(1, args[3]);
+        ldst_args[3] = RI32(1, (uintptr_t)s->code_ptr);
+        STORE32(args[0], BinaryenCall(MODULE, binaryen_ld_function(&sign_ext_bits, args[3]), ldst_args, 4, BinaryenTypeInt32()));
+        STORE32(args[1], BinaryenCall(MODULE, "get_temp_ret", NULL, 0, BinaryenTypeInt32()));
         break;
-#endif
     case INDEX_op_qemu_st_i32:
         // args[0] -- value, args[1] -- taddr, args[2] -- oi
         ldst_args[0] = RI32(0, 0);
@@ -511,19 +511,19 @@ static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
         ldst_args[4] = RI32(1, (uintptr_t)s->code_ptr);
         tcg_out_expr(s, BinaryenCall(MODULE, binaryen_st_function(args[2]), ldst_args, 5, BinaryenTypeNone()), 0);
         break;
-#if 0
     case INDEX_op_qemu_st_i64:
-        tcg_out_r(s, *args++);
-        if (TCG_TARGET_REG_BITS == 32) {
-            tcg_out_r(s, *args++);
-        }
-        tcg_out_r(s, *args++);
-        if (TARGET_LONG_BITS > TCG_TARGET_REG_BITS) {
-            tcg_out_r(s, *args++);
-        }
-        tcg_out_i(s, *args++);
+        // (hi = args[1], lo = args[0]) -- value, args[2] -- taddr, args[3] -- oi
+        assert((get_memop(args[3]) & MO_SIZE) == MO_Q);
+        ldst_args[0] = RI32(0, 0);
+        ldst_args[1] = RI32(const_args[2], args[2]);
+
+        ldst_args[2] = RI32(const_args[0], args[0]);
+        ldst_args[3] = RI32(const_args[1], args[1]);
+
+        ldst_args[4] = RI32(1, args[3]);
+        ldst_args[5] = RI32(1, (uintptr_t)s->code_ptr);
+        tcg_out_expr(s, BinaryenCall(MODULE, binaryen_st_function(args[3]), ldst_args, 6, BinaryenTypeNone()), 0);
         break;
-#endif
     case INDEX_op_mb:
         break;
     case INDEX_op_mov_i32:  /* Always emitted via tcg_out_mov.  */
