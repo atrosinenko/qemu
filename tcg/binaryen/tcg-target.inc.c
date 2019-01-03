@@ -55,10 +55,15 @@ static const int tcg_target_call_oarg_regs[] = {
 };
 
 #define GOTO_TB_FLAG        (1u << 31)
+#define ENTRY_MARKER (-1)
 
 static inline void tcg_out_expr(TCGContext *s, BinaryenExpressionRef expr, uint32_t or_mask)
 {
     assert((((uintptr_t)expr) & 0x3) == 0);
+    uintptr_t *ptr = s->code_ptr;
+    if (*ptr == ENTRY_MARKER) {
+        EM_ASM({ delete CompiledTB[$0]; }, ptr);
+    }
     tcg_out32(s, ((uintptr_t)expr) | or_mask);
 }
 
@@ -130,7 +135,7 @@ void binaryen_module_init(TCGContext *s)
     tb_func_type = BinaryenAddFunctionType(MODULE, BINARYEN_TB_FUNC_TYPE, BinaryenTypeInt32(), int32_helper_args, 2);
 }
 
-static void compile_module(BinaryenModuleRef module, uintptr_t tag, BinaryenExpressionRef expr)
+static void compile_module(BinaryenModuleRef module, uintptr_t *tag, BinaryenExpressionRef expr)
 {
     static char buf[1 << 20];
     BinaryenAddFunction(MODULE, "tb_fun", tb_func_type, func_locals_all64, ARRAY_SIZE(func_locals_all64), expr);
@@ -194,6 +199,7 @@ static void compile_module(BinaryenModuleRef module, uintptr_t tag, BinaryenExpr
         });
         CompiledTB[$0] = instance.exports["tb_fun"];
     }, tag, buf, sz);
+    *tag = ENTRY_MARKER;
 }
 
 uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *_tb_ptr)
