@@ -57,12 +57,17 @@ static const int tcg_target_call_oarg_regs[] = {
 #define GOTO_TB_FLAG        (1u << 31)
 #define ENTRY_MARKER (-1)
 
+static int get_fptr(TCGContext *s, uintptr_t *tag)
+{
+  return ((uintptr_t)(tag) - (uintptr_t)(s->code_gen_buffer)) / 4;
+}
+
 static inline void tcg_out_expr(TCGContext *s, BinaryenExpressionRef expr, uint32_t or_mask)
 {
     assert((((uintptr_t)expr) & 0x3) == 0);
     uintptr_t *ptr = s->code_ptr;
     if (*ptr == ENTRY_MARKER) {
-        EM_ASM({ delete CompiledTB[$0]; }, ptr);
+        EM_ASM({ delete CompiledTBTable[$0]; }, get_fptr(s, ptr));
     }
     tcg_out32(s, ((uintptr_t)expr) | or_mask);
 }
@@ -135,7 +140,14 @@ void binaryen_module_init(TCGContext *s)
     tb_func_type = BinaryenAddFunctionType(MODULE, BINARYEN_TB_FUNC_TYPE, BinaryenTypeInt32(), int32_helper_args, 2);
 }
 
-static void compile_module(BinaryenModuleRef module, uintptr_t *tag, BinaryenExpressionRef expr)
+uintptr_t (*invoke_tb)(int, void *, void *);
+typedef uint64_t (*helper_func)(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4, uint32_t arg5, uint32_t arg6, uint32_t arg7, uint32_t arg8, uint32_t arg9, uint32_t arg10, uint32_t arg11, uint32_t arg12);
+uint64_t call_helper(helper_func func, uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4, uint32_t arg5, uint32_t arg6, uint32_t arg7, uint32_t arg8, uint32_t arg9, uint32_t arg10, uint32_t arg11, uint32_t arg12)
+{
+  return func(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
+}
+
+static void compile_module(TCGContext *s, BinaryenModuleRef module, uintptr_t *tag, BinaryenExpressionRef expr)
 {
     static char buf[1 << 20];
     BinaryenAddFunction(MODULE, "tb_fun", tb_func_type, func_locals_all64, ARRAY_SIZE(func_locals_all64), expr);
@@ -163,6 +175,7 @@ static void compile_module(BinaryenModuleRef module, uintptr_t *tag, BinaryenExp
 
     BinaryenSetMemory(MODULE, 0, -1, NULL, NULL, NULL, NULL, 0, 0);
     BinaryenAddMemoryImport(MODULE, NULL, "env", "memory", 0);
+    BinaryenAddTableImport(MODULE, NULL, "env", "tb_funcs");
 
 
 //     assert (BinaryenModuleValidate(MODULE));
@@ -173,10 +186,12 @@ static void compile_module(BinaryenModuleRef module, uintptr_t *tag, BinaryenExp
 
     EM_ASM({
         var module = new WebAssembly.Module(new Uint8Array(Module['wasmMemory'].buffer, $1, $2));
+        var fptr = $3;
         var instance = new WebAssembly.Instance(module, {
             'env': {
                 'memory': Module['wasmMemory'],
-                'call_helper': Module['dynCall_jiiiiiiiiiiii'],
+                'tb_funcs': CompiledTBTable,
+                'call_helper': Module['_call_helper'],
 
                 'helper_ret_ldub_mmu': Module['_helper_ret_ldub_mmu'],
                 'helper_le_lduw_mmu':  Module['_helper_le_lduw_mmu'],
@@ -197,8 +212,11 @@ static void compile_module(BinaryenModuleRef module, uintptr_t *tag, BinaryenExp
                 'get_temp_ret': getTempRet0,
             }
         });
-        CompiledTB[$0] = instance.exports["tb_fun"];
-    }, tag, buf, sz);
+        if (CompiledTBTable.length < fptr + 1) {
+          CompiledTBTable.grow(fptr + 10 - CompiledTBTable.length);
+        }
+        CompiledTBTable.set(fptr, instance.exports['tb_fun']);
+    }, tag, buf, sz, get_fptr(s, tag));
     *tag = ENTRY_MARKER;
 }
 
@@ -207,14 +225,73 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *_tb_ptr)
     long tcg_temps[CPU_TEMP_BUF_NLONGS];
     uintptr_t sp_value = (uintptr_t)(tcg_temps + CPU_TEMP_BUF_NLONGS);
 
+    TCGContext *s = ((uint32_t *)_tb_ptr)[1];
     uintptr_t tb_ptr = _tb_ptr;
-    do {
-        tb_ptr &= ~GOTO_TB_FLAG;
-        tb_ptr = EM_ASM_INT({
-            return CompiledTB[$1]($0, $2);
-        }, env, tb_ptr, sp_value);
-    } while(tb_ptr & GOTO_TB_FLAG);
-    return tb_ptr;
+
+    return invoke_tb(get_fptr(s, _tb_ptr), env, sp_value);
+}
+
+static void create_invoker()
+{
+  BinaryenModuleRef invoker = BinaryenModuleCreate();
+
+  // Initialize types
+  BinaryenType many_int32s[] = {
+    BinaryenTypeInt32(),
+    BinaryenTypeInt32(),
+    BinaryenTypeInt32()
+  };
+  BinaryenFunctionTypeRef tb_type = BinaryenAddFunctionType(
+    invoker, "tb_type",
+    BinaryenTypeInt32(), many_int32s, 2
+  );
+  BinaryenFunctionTypeRef invoker_type = BinaryenAddFunctionType(
+    invoker, "invoker_type",
+    BinaryenTypeInt32(), many_int32s, 3
+  );
+
+  // Create invoker function
+  BinaryenExpressionRef args[] = {
+    BinaryenGetLocal(invoker, 1, BinaryenTypeInt32()),
+    BinaryenGetLocal(invoker, 2, BinaryenTypeInt32())
+  };
+  BinaryenExpressionRef function_body = BinaryenReturn(
+    invoker,
+    BinaryenCallIndirect(
+      invoker,
+      BinaryenGetLocal(invoker, 0, BinaryenTypeInt32()),
+      args, 2, "tb_type"
+    )
+  );
+  BinaryenFunctionRef invoker_tb = BinaryenAddFunction(
+    invoker,
+    "invoke_tb", invoker_type,
+    NULL, 0, function_body
+  );
+
+  BinaryenAddTableImport(invoker, NULL, "env", "tb_funcs");
+  BinaryenAddFunctionExport(invoker, "invoke_tb", "invoke_tb");
+
+
+  static char buf[4096];
+//  BinaryenModuleValidate(invoker);
+  BinaryenModuleOptimize(invoker);
+  int sz = BinaryenModuleWrite(invoker, buf, sizeof(buf));
+  BinaryenModuleDispose(invoker);
+
+  invoke_tb = EM_ASM_INT({
+    var module = new WebAssembly.Module(new Uint8Array(Module['wasmMemory'].buffer, $0, $1));
+    window.CompiledTBTable = new WebAssembly.Table({
+      'initial': 1024 * 1024 / 4,
+      'element': 'anyfunc'
+    });
+    var instance = new WebAssembly.Instance(module, {
+      'env': {
+        'tb_funcs': CompiledTBTable
+      }
+    });
+    return Module.addFunction(instance.exports['invoke_tb']);
+  }, buf, sz);
 }
 
 static void tcg_target_init(TCGContext *s)
@@ -245,6 +322,8 @@ static void tcg_target_init(TCGContext *s)
     tcg_set_frame(s, TCG_REG_CALL_STACK,
                   -CPU_TEMP_BUF_NLONGS * sizeof(long),
                   CPU_TEMP_BUF_NLONGS * sizeof(long));
+
+    create_invoker();
 }
 
 #define TODO() assert(111 * 0)
@@ -330,6 +409,7 @@ static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
 {
     int sign_ext_bits;
     BinaryenExpressionRef expr_tmp, ldst_args[6];
+    BinaryenExpressionRef args_get = {BinaryenGetLocal(MODULE, 0, BinaryenTypeInt32()), BinaryenGetLocal(MODULE, 1, BinaryenTypeInt32())};
     switch (opc) {
     case INDEX_op_exit_tb:
         tcg_out_expr(s, BinaryenReturn(MODULE, RI32(1, args[0])), 0);
@@ -342,9 +422,14 @@ static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
         } else {
             /* Indirect jump method. */
             BinaryenIf(MODULE, BinaryenLoad(MODULE, 4, 0, 0, 0, BinaryenTypeInt32(), RI32(1, (uintptr_t)(s->tb_jmp_target_addr + args[0]))),
-                BinaryenReturn(MODULE, BinaryenBinary(MODULE, BinaryenOrInt32(),
-                                                      BinaryenLoad(MODULE, 4, 0, 0, 0, BinaryenTypeInt32(), RI32(1, (uintptr_t)(s->tb_jmp_target_addr + args[0]))),
-                                                      RI32(1, GOTO_TB_FLAG))),
+                BinaryenCallIndirect(MODULE, BinaryenBinary(MODULE, BinaryenShrUInt32(),
+                                     BinaryenBinary(MODULE, BinaryenSubInt32(),
+                                                    BinaryenLoad(MODULE, 4, 0, 0, 0, BinaryenTypeInt32(), RI32(1, (uintptr_t)(s->tb_jmp_target_addr + args[0]))),
+                                                    RI32(1, s->code_gen_buffer)
+                                                   ),
+                                     RI32(1, 2)),
+                                     args_get, 2, BINARYEN_TB_FUNC_TYPE
+                                    ),
                 NULL
             );
             set_jmp_reset_offset(s, args[0]);
@@ -947,7 +1032,7 @@ void flush_icache_range(uintptr_t _start, uintptr_t _stop)
     }
 
     start[0] = (uint32_t)RelooperRenderAndDispose(relooper, PTR_FROM_PTR(*begin), TCG_TARGET_NB_REGS);
-    compile_module(MODULE, start, start[0]);
+    compile_module(s, MODULE, start, start[0]);
 }
 
 static inline int tcg_target_const_match(tcg_target_long val, TCGType type,
