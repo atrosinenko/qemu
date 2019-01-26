@@ -108,12 +108,16 @@ static inline void tcg_out_expr(TCGContext *s, BinaryenExpressionRef expr, uint3
 
 
 
-static BinaryenType               int32_helper_args[ARRAY_SIZE(tcg_target_call_iarg_regs) + 1];
-static BinaryenType               func_locals_all64[TCG_TARGET_NB_REGS + 1];
+static BinaryenType int32_helper_args[ARRAY_SIZE(tcg_target_call_iarg_regs) + 1];
+static BinaryenType func_locals[TCG_TARGET_NB_REGS + 1]; // 2 x 32bit arg-regs + (NB_REGS - 2) x 64 bit + 3 x (32 bit TLB)
 
 static BinaryenFunctionTypeRef helper_type, ld_type, st32_type, st64_type, tb_func_type, get_temp_ret_type;
 
 static long tcg_temps[CPU_TEMP_BUF_NLONGS];
+
+#define TLB_TMP0 (TCG_TARGET_NB_REGS)
+#define TLB_TMP1 (TCG_TARGET_NB_REGS + 1)
+#define TLB_TMP2 (TCG_TARGET_NB_REGS + 2)
 
 void binaryen_module_init(TCGContext *s)
 {
@@ -124,11 +128,8 @@ void binaryen_module_init(TCGContext *s)
     for (int i = 0; i < ARRAY_SIZE(int32_helper_args); ++i) {
         int32_helper_args[i] = BinaryenTypeInt32();
     }
-    for (int i = 0; i < ARRAY_SIZE(func_locals_all64); ++i) {
-        func_locals_all64[i] = BinaryenTypeInt64();
-    }
-    for (int i = 2; i < TCG_TARGET_NB_REGS; ++i) {
-        STORE64(i, RI64(1, 0));
+    for (int i = 0; i < ARRAY_SIZE(func_locals); ++i) {
+        func_locals[i] = (i < TCG_TARGET_NB_REGS - 2) ? BinaryenTypeInt64() : BinaryenTypeInt32();
     }
     helper_type =       BinaryenAddFunctionType(MODULE, BINARYEN_GENERIC_FUNC_TYPE,    BinaryenTypeInt32(), int32_helper_args, ARRAY_SIZE(int32_helper_args));
     get_temp_ret_type = BinaryenAddFunctionType(MODULE, BINARYEN_GENERIC_FUNC_TYPE_HI, BinaryenTypeInt32(), NULL, 0);
@@ -150,7 +151,7 @@ uint64_t call_helper(helper_func func, uint32_t arg1, uint32_t arg2, uint32_t ar
 static void compile_module(TCGContext *s, BinaryenModuleRef module, uintptr_t *tag, BinaryenExpressionRef expr)
 {
     static char buf[1 << 20];
-    BinaryenAddFunction(MODULE, "tb_fun", tb_func_type, func_locals_all64, ARRAY_SIZE(func_locals_all64), expr);
+    BinaryenAddFunction(MODULE, "tb_fun", tb_func_type, func_locals, ARRAY_SIZE(func_locals), expr);
     BinaryenAddFunctionExport(MODULE, "tb_fun", "tb_fun");
 
     BinaryenAddFunctionImport(MODULE, "call_helper",  "env", "call_helper", helper_type);
@@ -404,12 +405,108 @@ static const char *binaryen_st_function(int oi)
     }
 }
 
+/* Based on arm backend */
+// TODO 64-bit guest
+static BinaryenExpressionRef tcg_out_tlb_op(TCGContext *s, uint32_t addr_const, uint32_t addr_val, BinaryenExpressionRef slowpath, int oi, bool is_load, BinaryenExpressionRef value)
+{
+    int mem_index = get_mmuidx(oi);
+    TCGMemOp opc = get_memop(oi);
+    bool is_signed = (opc & MO_SIGN) != 0;
+
+    int cmp_off =
+        (is_load
+         ? offsetof(CPUArchState, tlb_table[mem_index][0].addr_read)
+         : offsetof(CPUArchState, tlb_table[mem_index][0].addr_write));
+    int add_off = offsetof(CPUArchState, tlb_table[mem_index][0].addend);
+
+    // TMP0 <- virt_page
+    tcg_out_expr(s, BinaryenSetLocal(MODULE, TLB_TMP0, BinaryenBinary(MODULE, BinaryenShrUInt32(),
+        RI32(addr_const, addr_val),
+        RI32(1, TARGET_PAGE_BITS)
+    )), 0);
+
+    // TMP1 <- offset in TLB + TLB base address
+    tcg_out_expr(s, BinaryenSetLocal(MODULE, TLB_TMP1,
+        BinaryenBinary(MODULE, BinaryenAddInt32(),
+            RI32(0, 0),
+            BinaryenBinary(MODULE, BinaryenShlInt32(),
+                BinaryenBinary(MODULE, BinaryenAndInt32(),
+                    BinaryenGetLocal(MODULE, TLB_TMP0, BinaryenTypeInt32()),
+                    RI32(1, CPU_TLB_SIZE - 1)
+                ),
+                RI32(1, CPU_TLB_ENTRY_BITS)
+            )
+        )
+    ), 0);
+
+    tcg_out_expr(s, BinaryenSetLocal(MODULE, TLB_TMP2,
+        BinaryenLoad(
+            MODULE, 4, 0, cmp_off, 0, BinaryenTypeInt32(),
+            BinaryenGetLocal(MODULE, TLB_TMP1, BinaryenTypeInt32())
+        )
+    ), 0);
+
+    BinaryenExpressionRef comparator_virt_page = BinaryenBinary(MODULE, BinaryenShrUInt32(),
+        BinaryenGetLocal(MODULE, TLB_TMP2, BinaryenTypeInt32()),
+        RI32(1, TARGET_PAGE_BITS)
+    );
+
+    unsigned s_bits = opc & MO_SIZE;
+    unsigned a_bits = get_alignment_bits(opc);
+
+    if (a_bits < s_bits) {
+        a_bits = s_bits;
+    }
+
+    BinaryenExpressionRef use_slowpath = BinaryenBinary(MODULE, BinaryenOrInt32(),
+        BinaryenBinary(MODULE, BinaryenNeInt32(),
+            BinaryenGetLocal(MODULE, TLB_TMP0, BinaryenTypeInt32()),
+            comparator_virt_page
+        ),
+        BinaryenBinary(MODULE, BinaryenAndInt32,
+            BinaryenGetLocal(MODULE, TLB_TMP2, BinaryenTypeInt32()),
+            RI32(1, (1 << TARGET_PAGE_BITS) - 1)
+        )
+    );
+    if (a_bits > 0) {
+        use_slowpath = BinaryenBinary(MODULE, BinaryenOrInt32(),
+            use_slowpath,
+            BinaryenBinary(MODULE, BinaryenAndInt32(), RI32(addr_const, addr_val), RI32(1, (1 << a_bits) - 1))
+        );
+    }
+
+    BinaryenExpressionRef phys_addr = BinaryenBinary(MODULE, BinaryenAddInt32(),
+        RI32(addr_const, addr_val),
+        BinaryenLoad(
+            MODULE, 4, 0, add_off, 0, BinaryenTypeInt32(),
+            BinaryenGetLocal(MODULE, TLB_TMP1, BinaryenTypeInt32())
+        )
+    );
+
+    BinaryenExpressionRef fastpath;
+    if (is_load) {
+        fastpath = BinaryenLoad(
+            MODULE, 1 << s_bits, is_signed, 0, 0,
+            (s_bits <= 2) ? BinaryenTypeInt32() : BinaryenTypeInt64() /* ??? */,
+            phys_addr
+        );
+    } else {
+        fastpath = BinaryenStore(
+            MODULE, 1 << s_bits, 0, 0,
+            phys_addr, value,
+            (s_bits <= 2) ? BinaryenTypeInt32() : BinaryenTypeInt64()
+        );
+    }
+
+    return BinaryenIf(MODULE, use_slowpath, slowpath, fastpath);
+}
+
 static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
                               const TCGArg *args, const int *const_args)
 {
     int sign_ext_bits;
-    BinaryenExpressionRef expr_tmp, ldst_args[6];
-    BinaryenExpressionRef args_get = {BinaryenGetLocal(MODULE, 0, BinaryenTypeInt32()), BinaryenGetLocal(MODULE, 1, BinaryenTypeInt32())};
+    BinaryenExpressionRef expr_tmp, extended_if_needed, ldst_args[6];
+    BinaryenExpressionRef args_get[2];
     switch (opc) {
     case INDEX_op_exit_tb:
         tcg_out_expr(s, BinaryenReturn(MODULE, RI32(1, args[0])), 0);
@@ -421,11 +518,15 @@ static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
             TODO();
         } else {
             /* Indirect jump method. */
+
+            // May overflow stack...
+            args_get[0] = BinaryenGetLocal(MODULE, 0, BinaryenTypeInt32());
+            args_get[1] = BinaryenGetLocal(MODULE, 1, BinaryenTypeInt32());
             BinaryenIf(MODULE, BinaryenLoad(MODULE, 4, 0, 0, 0, BinaryenTypeInt32(), RI32(1, (uintptr_t)(s->tb_jmp_target_addr + args[0]))),
                 BinaryenCallIndirect(MODULE, BinaryenBinary(MODULE, BinaryenShrUInt32(),
                                      BinaryenBinary(MODULE, BinaryenSubInt32(),
                                                     BinaryenLoad(MODULE, 4, 0, 0, 0, BinaryenTypeInt32(), RI32(1, (uintptr_t)(s->tb_jmp_target_addr + args[0]))),
-                                                    RI32(1, s->code_gen_buffer)
+                                                    RI32(1, (uintptr_t)s->code_gen_buffer)
                                                    ),
                                      RI32(1, 2)),
                                      args_get, 2, BINARYEN_TB_FUNC_TYPE
@@ -572,16 +673,17 @@ static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
         ldst_args[3] = RI32(1, (uintptr_t)s->code_ptr);
         expr_tmp = BinaryenCall(MODULE, binaryen_ld_function(&sign_ext_bits, args[2]), ldst_args, 4, BinaryenTypeInt32());
         if (sign_ext_bits) {
-            BINARY32(BinaryenShrSInt32(), args[0],
-                     BinaryenBinary(MODULE, BinaryenShlInt32(),
-                                    expr_tmp,
-                                    RI32(1, sign_ext_bits)
-                                   ),
-                     RI32(1, sign_ext_bits)
-                    ); // TODO args[0] -- imm
+            extended_if_needed = BinaryenBinary(MODULE, BinaryenShrSInt32(),
+                                                BinaryenBinary(MODULE, BinaryenShlInt32(),
+                                                                expr_tmp,
+                                                                RI32(1, sign_ext_bits)
+                                                              ),
+                                                RI32(1, sign_ext_bits)
+            ); // TODO args[0] -- imm
         } else {
-            BINARY32(BinaryenAndInt32(), args[0], expr_tmp, RI32(1, (0xFFFFFFFFu << sign_ext_bits) >> sign_ext_bits));
+            extended_if_needed = BinaryenBinary(MODULE, BinaryenAndInt32(), expr_tmp, RI32(1, (0xFFFFFFFFu << sign_ext_bits) >> sign_ext_bits));
         }
+        STORE32(args[0], tcg_out_tlb_op(s, const_args[1], args[1], extended_if_needed, args[2], 1, NULL));
         break;
     case INDEX_op_qemu_ld_i64:
         // (hi = args[1], lo = args[0]) -- dest, args[2] -- taddr, args[3] -- oi
@@ -600,7 +702,11 @@ static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
         ldst_args[2] = RI32(const_args[0], args[0]);
         ldst_args[3] = RI32(1, args[2]);
         ldst_args[4] = RI32(1, (uintptr_t)s->code_ptr);
-        tcg_out_expr(s, BinaryenCall(MODULE, binaryen_st_function(args[2]), ldst_args, 5, BinaryenTypeNone()), 0);
+        tcg_out_expr(s, tcg_out_tlb_op(
+            s, const_args[1], args[1],
+            BinaryenCall(MODULE, binaryen_st_function(args[2]), ldst_args, 5, BinaryenTypeNone()),
+            args[2], 0, RI32(const_args[0], args[0])
+        ), 0);
         break;
     case INDEX_op_qemu_st_i64:
         // (hi = args[1], lo = args[0]) -- value, args[2] -- taddr, args[3] -- oi
