@@ -68,7 +68,7 @@ function build_glib()
     export LIBS="-L${curdir}/../gettext-$GETTEXT_VERSION/gettext-runtime/intl/.libs/ -L${curdir}/../stub/"
     
     test -f ./configure || NOCONFIGURE=1 ./autogen.sh
-    glib_cv_stack_grows=no $CONFRUNNER ./configure \
+    glib_cv_uscore=yes glib_cv_stack_grows=yes $CONFRUNNER ./configure \
 		--disable-always-build-tests --disable-installed-tests \
 		--disable-largefile --disable-selinux --disable-fam --disable-xattr --disable-libelf \
 		--disable-libmount \
