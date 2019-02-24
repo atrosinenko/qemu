@@ -421,29 +421,30 @@ static BinaryenExpressionRef tcg_out_tlb_op(TCGContext *s, uint32_t addr_const, 
     int add_off = offsetof(CPUArchState, tlb_table[mem_index][0].addend);
 
     // TMP0 <- virt_page
-    tcg_out_expr(s, BinaryenSetLocal(MODULE, TLB_TMP0, BinaryenBinary(MODULE, BinaryenShrUInt32(),
+    BinaryenExpressionRef tmp0 = BinaryenTeeLocal(MODULE, TLB_TMP0, BinaryenBinary(MODULE, BinaryenShrUInt32(),
         RI32(addr_const, addr_val),
         CONST32(TARGET_PAGE_BITS)
-    )), 0);
+    ));
 
     // TMP1 <- offset in TLB + TLB base address
-    tcg_out_expr(s, BinaryenSetLocal(MODULE, TLB_TMP1,
+    BinaryenExpressionRef tmp1 = BinaryenTeeLocal(MODULE, TLB_TMP1,
         BinaryenBinary(MODULE, BinaryenAddInt32(),
             REG32(0),
             BinaryenBinary(MODULE, BinaryenShlInt32(),
                 BinaryenBinary(MODULE, BinaryenAndInt32(),
-                    BinaryenGetLocal(MODULE, TLB_TMP0, BinaryenTypeInt32()),
+                    tmp0,
                     CONST32(CPU_TLB_SIZE - 1)
                 ),
                 CONST32(CPU_TLB_ENTRY_BITS)
             )
         )
-    ), 0);
+    );
 
+    // barrier
     tcg_out_expr(s, BinaryenSetLocal(MODULE, TLB_TMP2,
         BinaryenLoad(
             MODULE, 4, 0, cmp_off, 0, BinaryenTypeInt32(),
-            BinaryenGetLocal(MODULE, TLB_TMP1, BinaryenTypeInt32())
+            tmp1
         )
     ), 0);
 
