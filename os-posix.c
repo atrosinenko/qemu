@@ -70,7 +70,7 @@ static void termsig_handler(int signal, siginfo_t *info, void *c)
 void os_setup_signal_handling(void)
 {
     struct sigaction act;
-
+return;
     memset(&act, 0, sizeof(act));
     act.sa_sigaction = termsig_handler;
     act.sa_flags = SA_SIGINFO;

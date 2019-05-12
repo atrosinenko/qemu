@@ -76,7 +76,7 @@ static int qemu_signal_init(void)
 {
     int sigfd;
     sigset_t set;
-
+return 0;
     /*
      * SIG_IPI must be blocked in the main thread and must not be caught
      * by sigwait() in the signal thread. Otherwise, the cpu thread will
@@ -231,11 +231,11 @@ static int os_host_main_loop_wait(int64_t timeout)
     qemu_mutex_unlock_iothread();
     replay_mutex_unlock();
 
-#ifdef __EMSCRIPTEN__
+#ifdef NOTHREAD
     for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 25; ++j) call_rcu_thread_func();
-        for (int j = 0; j < 25; ++j) iothread_run_func();
-        for (int j = 0; j < 200; ++j) qemu_tcg_rr_cpu_thread_func();
+        for (int j = 0; j < 50; ++j) call_rcu_thread_func();
+        for (int j = 0; j < 50; ++j) iothread_run_func();
+        for (int j = 0; j < 1000; ++j) qemu_tcg_rr_cpu_thread_func();
     }
 #endif
     ret = qemu_poll_ns((GPollFD *)gpollfds->data, gpollfds->len, timeout);
