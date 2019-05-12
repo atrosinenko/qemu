@@ -1477,4 +1477,6 @@ void helper_atomic_sto_be_mmu(CPUArchState *env, target_ulong addr, Int128 val,
 
 #endif /* CONFIG_ATOMIC128 */
 
+void tcg_flush_translations(void);
+
 #endif /* TCG_H */

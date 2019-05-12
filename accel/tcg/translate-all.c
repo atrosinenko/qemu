@@ -1268,6 +1268,7 @@ done:
 void tb_flush(CPUState *cpu)
 {
     if (tcg_enabled()) {
+        tcg_flush_translations();
         unsigned tb_flush_count = atomic_mb_read(&tb_ctx.tb_flush_count);
         async_safe_run_on_cpu(cpu, do_tb_flush,
                               RUN_ON_CPU_HOST_INT(tb_flush_count));

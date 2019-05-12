@@ -26,13 +26,17 @@
 #ifndef BINARYEN_TCG_TARGET_H
 #define BINARYEN_TCG_TARGET_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // insn = BinaryenExpressionRef, sizeof(void *) == 4
 #define TCG_TARGET_INSN_UNIT_SIZE  4
 
 #define CONFIG_BINARYEN
 
 #define HAVE_TCG_QEMU_TB_EXEC
-#define TCG_TARGET_TLB_DISPLACEMENT_BITS 16
+#define TCG_TARGET_TLB_DISPLACEMENT_BITS 20
 
 #define TCG_TARGET_REG_BITS  32
 #define TCG_TARGET_NB_REGS   31
@@ -79,26 +83,23 @@ typedef int TCGReg;
 
 #define TCG_AREG0 0
 
+enum expr_type {
+    EXPR_NORM = 0,
+    EXPR_BLOCK = 1,
+    EXPR_CONDITION = 2,
+    EXPR_CONDITION_DEST = 3
+};
+
+static inline void tcg_out_expr(void *s, void *expr, enum expr_type tpe_mask);
 void flush_icache_range(uintptr_t start, uintptr_t stop);
 
-
-#define BLOCK_ADDR          0x1
-#define CONDITION_EXPR_ADDR 0x2
-#define COND_JUMP_ADDR      0x3
-
-
-static inline void tb_target_set_jmp_target(uintptr_t tc_ptr,
-                                            uintptr_t jmp_addr, uintptr_t addr)
-{
-    if (jmp_addr != addr - 4) {
-        *(int32_t *)jmp_addr = addr | COND_JUMP_ADDR;
-//      assert(*(uint32_t *)tc_ptr == 0);
-    } else {
-        *(int32_t *)jmp_addr = COND_JUMP_ADDR;
-    }
-}
+void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_addr, uintptr_t addr);
 
 // TODO
 #define TCG_TARGET_DEFAULT_MO 0
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // BINARYEN_TCG_TARGET_H

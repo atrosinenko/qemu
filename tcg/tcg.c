@@ -60,6 +60,8 @@
 #include "exec/log.h"
 #include "sysemu/sysemu.h"
 
+static TranslationBlock *last_tb = NULL;
+
 /* Forward declarations for functions declared in tcg-target.inc.c and
    used here. */
 static void tcg_target_init(TCGContext *s);
@@ -559,6 +561,17 @@ static inline bool tcg_region_initial_alloc__locked(TCGContext *s)
     return tcg_region_alloc__locked(s);
 }
 
+void tcg_flush_translations(void)
+{
+    int counter = 0;
+    while (last_tb) {
+        delete_instance(last_tb, last_tb->wasm_instance);
+        last_tb = last_tb->prev_tb;
+        counter += 1;
+    }
+    fprintf(stderr, "Flushed %d TBs\n", counter);
+}
+
 /* Call from a safe-work context */
 void tcg_region_reset_all(void)
 {
@@ -971,13 +984,14 @@ void tcg_context_init(TCGContext *s)
  */
 TranslationBlock *tcg_tb_alloc(TCGContext *s)
 {
-    uintptr_t align = qemu_icache_linesize;
+    uintptr_t align = 4; //qemu_icache_linesize;
     TranslationBlock *tb;
     void *next;
 
  retry:
     tb = (void *)ROUND_UP((uintptr_t)s->code_gen_ptr, align);
     next = (void *)ROUND_UP((uintptr_t)(tb + 1), align);
+    assert(next == tb + 1);
 
     if (unlikely(next > s->code_gen_highwater)) {
         if (tcg_region_alloc(s)) {
@@ -3514,12 +3528,12 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     s->code_buf = tb->tc.ptr;
     s->code_ptr = tb->tc.ptr;
 
-#if defined(CONFIG_BINARYEN)
-    tcg_out32(s, 0);      /* BB function pointer (after relooper -- see flush_icache_range) */
-    tcg_out32(s, (int)s); /* Link to TCGContext to use in flush_icache_range */
-//    tcg_out32(s, 0);      /* */
+    tb->prev_tb = last_tb;
+    last_tb = tb;
+    tb->tb_native_id = ((uintptr_t)(s->code_ptr) - (uintptr_t)(s->code_gen_buffer)) / 4 + 1;
+    tb->wasm_countdown = -1;
+    tb->wasm_instance = NULL;
     binaryen_module_init(s);
-#endif
 
 #ifdef TCG_TARGET_NEED_LDST_LABELS
     QSIMPLEQ_INIT(&s->ldst_labels);
