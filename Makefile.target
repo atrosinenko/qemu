@@ -107,6 +107,9 @@ obj-y += target/$(TARGET_BASE_ARCH)/
 obj-y += disas.o
 obj-$(call notempty,$(TARGET_XML_FILES)) += gdbstub-xml.o
 
+tcg/binaryen/invoker.o: QEMU_CXXFLAGS += $(QEMU_CFLAGS) -std=c++11
+obj-y += tcg/binaryen/invoker.o
+
 #########################################################
 # Linux user emulator target
 
