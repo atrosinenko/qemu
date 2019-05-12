@@ -1871,7 +1871,7 @@ static void main_loop(bool preconfig)
 #ifdef CONFIG_PROFILER
         dev_time += profile_getclock() - ti;
 #endif
-#ifdef __EMSCRIPTEN__
+#ifdef NOTHREAD
         if (!preconfig)
             break;
 #endif
@@ -2960,6 +2960,8 @@ int main(int argc, char **argv, char **envp)
     } BlockdevOptions_queue;
     QSIMPLEQ_HEAD(, BlockdevOptions_queue) bdo_queue
         = QSIMPLEQ_HEAD_INITIALIZER(bdo_queue);
+
+    setenv("BINARYEN_CORES", "1", 1);
 
     module_call_init(MODULE_INIT_TRACE);
 
@@ -4654,6 +4656,8 @@ int main(int argc, char **argv, char **envp)
 
 #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop(emscripten_main_loop, 0, 1);
+#elif defined(NOTHREAD)
+    while (1) emscripten_main_loop();
 #else
     main_loop();
 #endif

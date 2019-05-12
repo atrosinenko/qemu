@@ -1412,7 +1412,7 @@ static void qemu_tcg_rr_cpu_thread_init(void *arg)
     CPUState *cpu = arg;
 
     assert(tcg_enabled());
-#ifdef __EMSCRIPTEN__
+#ifdef NOTHREAD
     rcu_register_thread_id(qemu_get_thread_id());
 #else
     rcu_register_thread();
@@ -1430,7 +1430,7 @@ static void qemu_tcg_rr_cpu_thread_init(void *arg)
     /* wait for initial kick-off after machine start */
 
 // TODO Is it safe?
-#ifndef __EMSCRIPTEN__
+#ifndef NOTHREAD
     while (first_cpu->stopped) {
         qemu_cond_wait(first_cpu->halt_cond, &qemu_global_mutex);
 
@@ -1741,7 +1741,7 @@ static void qemu_cpu_kick_thread(CPUState *cpu)
         return;
     }
     cpu->thread_kicked = true;
-#ifndef __EMSCRIPTEN__
+#ifndef NOTHREAD
     err = pthread_kill(cpu->thread->thread, SIG_IPI);
 #else
     err = 1;
@@ -2054,7 +2054,7 @@ void qemu_init_vcpu(CPUState *cpu)
         qemu_dummy_start_vcpu(cpu);
     }
             
-#ifndef __EMSCRIPTEN__
+#ifndef NOTHREAD
     while (!cpu->created) {
         qemu_cond_wait(&qemu_cpu_cond, &qemu_global_mutex);
     }

@@ -63,7 +63,7 @@ static void *iothread_run(void *opaque)
     qemu_mutex_unlock(&iothread->init_done_lock);
 
     while (iothread->running) {
-#ifdef __EMSCRIPTEN__
+#ifdef NOTHREAD
         iothread_run_func();
     }
     rcu_unregister_thread();
@@ -90,7 +90,7 @@ void iothread_run_func() {
 
             g_main_context_pop_thread_default(iothread->worker_context);
         }
-#ifndef __EMSCRIPTEN__
+#ifndef NOTHREAD
     }
 
     rcu_unregister_thread();
@@ -195,7 +195,7 @@ static void iothread_complete(UserCreatable *obj, Error **errp)
     g_free(thread_name);
     g_free(name);
     
-#ifdef __EMSCRIPTEN__
+#ifdef NOTHREAD
     assert(my_iothread == NULL);
 
     rcu_register_thread_id(iothread->thread.id);

@@ -69,7 +69,7 @@ struct rcu_reader_data {
     QLIST_ENTRY(rcu_reader_data) node;
 };
 
-#ifndef __EMSCRIPTEN__
+#ifndef NOTHREAD
 extern __thread struct rcu_reader_data rcu_reader;
 #else
 extern __thread struct rcu_reader_data rcu_reader_array[MAX_THREADS];
@@ -123,7 +123,7 @@ extern void synchronize_rcu(void);
  */
 extern void rcu_register_thread(void);
 extern void rcu_unregister_thread(void);
-#ifdef __EMSCRIPTEN__
+#ifdef NOTHREAD
 extern void rcu_register_thread_id(int thread_id);
 extern void rcu_unregister_thread_id(int thread_id);
 #endif

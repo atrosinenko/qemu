@@ -135,14 +135,14 @@ void do_run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data,
 {
     struct qemu_work_item wi;
 
-#ifdef __EMSCRIPTEN__
+#ifdef NOTHREAD
     QemuThread old_thread;
     qemu_thread_get_self(&old_thread);
     qemu_thread_switch(first_cpu->thread);
 #endif
     if (qemu_cpu_is_self(cpu)) {
         func(cpu, data);
-#ifdef __EMSCRIPTEN__
+#ifdef NOTHREAD
         qemu_thread_switch(&old_thread);
 #endif
         return;

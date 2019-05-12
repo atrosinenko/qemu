@@ -6,19 +6,26 @@ build=$top/$DIRNAME
 
 export PATH="$top/emscripten/bin:$PATH"
 
-EXTRA_CFLAGS="-DNOTHREAD -I$build/$GLIB_SRC/glib/ -I$build/$GLIB_SRC/ -I$build/$PIXMAN_SRC/pixman -I$build/binaryen/src $OPTS -s ERROR_ON_UNDEFINED_SYMBOLS=0"
-EXTRA_LDFLAGS="-L$build/$GLIB_SRC/glib/.libs/ -L$build/$GLIB_SRC/gthread/.libs/ -L$build/stub -L$build/$PIXMAN_SRC/pixman/.libs -L$build/binaryen/lib/ -lbinaryen $OPTS -s ERROR_ON_UNDEFINED_SYMBOLS=0"
+EXTRA_CFLAGS="-DNOTHREAD -I$build/$GLIB_SRC/glib/ -I$build/$GLIB_SRC/ -I$build/$PIXMAN_SRC/pixman -I$build/binaryen/src $OPTS"
+EXTRA_LDFLAGS="-L$build/$GLIB_SRC/glib/.libs/ -L$build/$GLIB_SRC/gthread/.libs/ -L$build/stub -L$build/$PIXMAN_SRC/pixman/.libs -L$build/binaryen/lib/ -lbinaryen -lglib-2.0 -lpixman-1 $OPTS ${EXTRA_LDOPTS}"
 
+export PKG_CONFIG_LIBDIR="$build/$GLIB_SRC/glib/"
 export CFLAGS="$EXTRA_CFLAGS"
 
 mkdir -p $build/qemu
 cd $build/qemu
 
-emconfigure $top/configure \
+$CONFRUNNER $top/configure --disable-werror $* \
     --extra-cflags="$EXTRA_CFLAGS" \
     --extra-ldflags="$EXTRA_LDFLAGS" \
-    $*
+    "$@"
 
+sed --in-place '
+/TOOLS=/ s/TOOLS=.*/TOOLS=/
+/CONFIG_PPOLL=/ d
+/ARCH=/ s/ARCH=.*/ARCH=binaryen/
+' config-host.mak
+echo "CONFIG_NOTHREAD=y" >> config-host.mak
 
 # Generate helper wrappers
 make config-host.h

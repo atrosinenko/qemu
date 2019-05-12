@@ -2177,8 +2177,10 @@ EOF
     if compile_prog "" "-lz" ; then
         :
     else
-        error_exit "zlib check failed" \
-            "Make sure to have the zlib libs and headers installed."
+        if test "$emscripten" = "no"; then
+            error_exit "zlib check failed" \
+                "Make sure to have the zlib libs and headers installed."
+        fi
     fi
 fi
 LIBS="$LIBS -lz"

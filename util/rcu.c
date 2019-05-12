@@ -66,7 +66,7 @@ static inline int rcu_gp_ongoing(unsigned long *ctr)
 /* Written to only by each individual reader. Read by both the reader and the
  * writers.
  */
-#ifndef __EMSCRIPTEN__
+#ifndef NOTHREAD
 __thread struct rcu_reader_data rcu_reader;
 #else
 __thread struct rcu_reader_data rcu_reader_array[MAX_THREADS];
@@ -264,7 +264,7 @@ void call_rcu_thread_func() {
          * Fetch rcu_call_count now, we only must process elements that were
          * added before synchronize_rcu() starts.
          */
-#ifndef __EMSCRIPTEN__
+#ifndef NOTHREAD
         while (n == 0 || (n < RCU_CALL_MIN_SIZE && ++tries <= 5)) {
             g_usleep(10000);
             if (n == 0) {
@@ -311,7 +311,7 @@ void call_rcu1(struct rcu_head *node, void (*func)(struct rcu_head *node))
     qemu_event_set(&rcu_call_ready_event);
 }
 
-#ifdef __EMSCRIPTEN__
+#ifdef NOTHREAD
 void rcu_register_thread(void)
 {
     abort();
@@ -331,7 +331,7 @@ void rcu_register_thread(void)
     qemu_mutex_unlock(&rcu_registry_lock);
 }
 
-#ifdef __EMSCRIPTEN__
+#ifdef NOTHREAD
 void rcu_unregister_thread(void)
 {
     abort();

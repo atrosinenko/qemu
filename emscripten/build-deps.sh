@@ -2,8 +2,9 @@
 
 . emscripten/opts.sh
 export STUBDIR=$(pwd)/emscripten/stubs
-export CFLAGS="$OPTS -s ERROR_ON_UNDEFINED_SYMBOLS=0"
-export CXXFLAGS="$OPTS -s ERROR_ON_UNDEFINED_SYMBOLS=0"
+export CFLAGS="$OPTS"
+export CXXFLAGS="$CFLAGS"
+export LDFLAGS="$CFLAGS"
 
 makeargs="$@"
 
@@ -17,6 +18,10 @@ function build_stub()
 	pushd stub
 	pwd
 	$MAKERUNNER make $makeargs
+	if [ "x$BUILDTYPE" = "xnative" ]
+	then
+		rm libresolv.so
+	fi
 	popd
 	touch stub.built
 }
@@ -27,7 +32,7 @@ function build_libffi()
     test -d libffi || git clone --depth 1 --branch emscripten https://github.com/atrosinenko/libffi.git
     pushd libffi
     test -f configure || ./autogen.sh
-    $CONFRUNNER ./configure $FFIOPT
+    $CONFRUNNER ./configure ${CROSS_OPT}
     $MAKERUNNER make $makeargs
     popd
     touch libffi.built
@@ -43,7 +48,6 @@ function build_gettext()
 		--disable-java --disable-native-java \
 		--disable-largefile \
 		--disable-c++ \
-		--host=emscripten-unknown-gnu \
 		--disable-threads --disable-acl --disable-openmp --disable-curses \
 		--without-emacs
     $MAKERUNNER make $makeargs
@@ -59,10 +63,9 @@ function build_glib()
     pushd $GLIB_SRC
 
     curdir=$(pwd)
-    export ZLIB_CFLAGS="-s USE_ZLIB=1"
     export ZLIB_LIBS="$ZLIB_CFLAGS"
-    export LIBFFI_CFLAGS="-I${curdir}/../libffi/emscripten-unknown-linux-gnu/include"
-    export LIBFFI_LIBS="-L${curdir}/../libffi/emscripten-unknown-linux-gnu/.libs -lffi"
+    export LIBFFI_CFLAGS="-I${curdir}/../libffi/${FFIPORT}/include"
+    export LIBFFI_LIBS="-L${curdir}/../libffi/${FFIPORT}/.libs -lffi"
 	export LIBMOUNT_CFLAGS=
 	export LIBMOUNT_LIBS=
     export LIBS="-L${curdir}/../gettext-$GETTEXT_VERSION/gettext-runtime/intl/.libs/ -L${curdir}/../stub/"
@@ -72,7 +75,6 @@ function build_glib()
 		--disable-always-build-tests --disable-installed-tests \
 		--disable-largefile --disable-selinux --disable-fam --disable-xattr --disable-libelf \
 		--disable-libmount \
-		--host=emscripten-unknown-gnu \
 		--with-pcre=internal
     sed --in-place '/EVENTFD/ d' config.h
     $MAKERUNNER make $makeargs
@@ -86,8 +88,7 @@ function build_pixman()
     test -d $PIXMAN_SRC || wget https://cairographics.org/releases/$PIXMAN_SRC.tar.gz
     test -d $PIXMAN_SRC || tar -axf $PIXMAN_SRC.tar.gz
     pushd $PIXMAN_SRC
-    $CONFRUNNER ./configure \
-		--host=emscripten-unknown-gnu
+    $CONFRUNNER ./configure ${CROSS_OPT}
     $MAKERUNNER make -C pixman $makeargs
     popd
     touch pixman.built
@@ -98,8 +99,8 @@ function build_binaryen()
     test -f binaryen.built && return
     test -d binaryen || git clone https://github.com/WebAssembly/binaryen.git
     pushd binaryen
-    emcmake cmake .
-    emmake make
+    LDFLAGS="${EXTRA_LDOPTS}" $CMAKERUNNER cmake .
+    $MAKERUNNER make
     popd
     touch binaryen.built
 }

@@ -1,5 +1,9 @@
 #include <pthread.h>
 
+#ifndef __EMSCRIPTEN__
+#include <signal.h>
+#endif
+
 // For ./configure script
 // Execute new thread function just now in this thread
 int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
